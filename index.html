@@ -12,169 +12,145 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body { height: 100%; background: #0E0D0B; }
+    html, body { height: 100%; background: #FAF7F2; font-family: 'Georgia', 'Times New Roman', serif; }
     #root { height: 100%; }
-    select option { background: #1A1814; color: #E8DCC8; }
+    input, select, textarea, button { font-family: 'Georgia', 'Times New Roman', serif; }
+    select option { background: #FAF7F2; color: #1A1410; }
     input[type="date"]::-webkit-calendar-picker-indicator,
     input[type="time"]::-webkit-calendar-picker-indicator,
-    input[type="month"]::-webkit-calendar-picker-indicator { filter: invert(1) opacity(0.4); }
+    input[type="month"]::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
     ::-webkit-scrollbar { width: 0; height: 0; }
+    .tabs-scroll { display: flex; overflow-x: auto; }
+    .tabs-scroll::-webkit-scrollbar { display: none; }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    const { useState, useEffect, useCallback } = React;
 
-    const APP_KEY = "ameno_os_v2";
-    const GOLD = "#C9A96E";
-    const DARK = "#0E0D0B";
-    const SURFACE = "#141210";
-    const SURFACE2 = "#1A1814";
-    const BORDER = "#2A2820";
-    const TEXT = "#E8DCC8";
-    const TEXT2 = "#9A8E7A";
-    const TEXT3 = "#5A5040";
-
-    const defaultState = {
-      pin: null,
-      habits: {
-        english: { streak: 0, lastDate: "" },
-        gym: { streak: 0, lastDate: "" },
-        stretch: { streak: 0, lastDate: "" },
-        sidebiz: { streak: 0, lastDate: "" },
-      },
-      tasks: [],
-      diary: [],
-      finance: { records: [], budget: 200000 },
-      sleep: [],
-      fire: { currentAssets: 163, monthlyInvestment: 65000, targetAge: 30, birthYear: 2003 },
-      checkedHabits: {},
+    // ── COLORS ──
+    const C = {
+      gold: '#B8955A', goldLight: '#F5EDD8', goldMid: '#D4AA6E',
+      navy: '#1B2A4A', navyLight: '#2C3E6B',
+      cream: '#FAF7F2', creamDark: '#F0EAE0',
+      brown: '#5C4033', brownLight: '#8B6355',
+      text: '#1A1410', text2: '#5C4A3A', text3: '#9A8870',
+      border: '#DDD3C0', surface: '#FFFFFF',
+      red: '#B84040', green: '#3A7A5A',
     };
 
-    function load() {
-      try {
-        const r = localStorage.getItem(APP_KEY);
-        if (r) return { ...defaultState, ...JSON.parse(r) };
-      } catch {}
-      return defaultState;
+    const PCOLOR = { urgent: '#B84040', high: '#C07030', medium: '#8A7030', low: '#3A6080' };
+    const PLABEL = { urgent: '緊急', high: '高', medium: '中', low: '低' };
+    const MOODS = ['😞','😕','😐','🙂','😊'];
+
+    const APP_KEY = 'ameno_os_v3';
+    const DEFAULT_DATA = {
+      pin: null,
+      schedule: [], todos: [], goals: [],
+      finance: { income: 144700, investment: 65000, defense: 22000, gym: 8000, subs: 10000, daily: 10000, records: [], investTotal: 0, defenseTotal: 0 },
+      wishlist: [], resist: { items: [], log: {} }, diary: [], birthdays: [],
+    };
+
+    function loadData() {
+      try { const r = localStorage.getItem(APP_KEY); if (r) return { ...DEFAULT_DATA, ...JSON.parse(r) }; } catch {}
+      return { ...DEFAULT_DATA };
     }
+    function saveData(d) { try { localStorage.setItem(APP_KEY, JSON.stringify(d)); } catch {} }
+    function today() { return new Date().toISOString().split('T')[0]; }
+    function todayStr() { return new Date().toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' }); }
+    function fmtYen(n) { return '¥' + Math.round(n).toLocaleString(); }
+    function fmtMan(n) { return (n / 10000).toFixed(1) + '万'; }
 
-    function save(d) {
-      try { localStorage.setItem(APP_KEY, JSON.stringify(d)); } catch {}
-    }
-
-    function today() { return new Date().toISOString().split("T")[0]; }
-
-    const PRIORITY = [
-      { key: "urgent", label: "緊急", color: "#C96E6E" },
-      { key: "high", label: "高", color: "#C99A6E" },
-      { key: "medium", label: "中", color: "#C9C96E" },
-      { key: "low", label: "低", color: "#6E9AC9" },
-    ];
-
-    const HABIT_CFG = {
-      english: { label: "英語学習", icon: "EN" },
-      gym: { label: "筋トレ", icon: "G" },
-      stretch: { label: "ストレッチ", icon: "S" },
-      sidebiz: { label: "副業学習", icon: "副" },
+    // ── STYLES ──
+    const st = {
+      inp: { width: '100%', background: C.creamDark, border: `1px solid ${C.border}`, borderRadius: 3, padding: '8px 11px', color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box' },
+      btn: (bg = C.gold, fg = '#fff') => ({ background: bg, border: 'none', borderRadius: 3, padding: '8px 16px', color: fg, cursor: 'pointer', fontSize: 12 }),
+      card: { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: '14px 16px', marginBottom: 10 },
+      label: { fontSize: 9, letterSpacing: '0.2em', color: C.text3, textTransform: 'uppercase', marginBottom: 10 },
+      row: { display: 'flex', gap: 8, alignItems: 'center' },
+      between: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+      grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
     };
 
     const TABS = [
-      { id: "home", label: "ホーム", icon: "◉" },
-      { id: "tasks", label: "タスク", icon: "◈" },
-      { id: "diary", label: "日記", icon: "◇" },
-      { id: "finance", label: "収支", icon: "◆" },
-      { id: "sleep", label: "睡眠", icon: "◎" },
-      { id: "fire", label: "FIRE", icon: "▲" },
+      { id: 'home', label: 'ホーム' },
+      { id: 'schedule', label: 'スケジュール' },
+      { id: 'todo', label: 'ToDo' },
+      { id: 'goals', label: '目標' },
+      { id: 'money', label: 'お金' },
+      { id: 'wishlist', label: '欲しいもの' },
+      { id: 'resist', label: '我慢リスト' },
+      { id: 'diary', label: '日記' },
     ];
 
-    const s = {
-      wrap: { minHeight: "100vh", background: DARK, color: TEXT, fontFamily: "'Georgia','Times New Roman',serif", maxWidth: 480, margin: "0 auto" },
-      card: { background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "16px 18px", marginBottom: 10 },
-      label: { fontSize: 10, letterSpacing: "0.2em", color: TEXT3, textTransform: "uppercase", marginBottom: 8 },
-      input: { width: "100%", background: SURFACE2, border: `1px solid ${BORDER}`, borderRadius: 3, padding: "9px 12px", color: TEXT, fontSize: 13, fontFamily: "inherit", boxSizing: "border-box", outline: "none" },
-      btn: (bg = GOLD, fg = DARK) => ({ background: bg, border: "none", borderRadius: 3, padding: "9px 18px", color: fg, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }),
-    };
-
+    // ── APP ──
     function App() {
-      const [data, setData] = useState(load);
-      const [tab, setTab] = useState("home");
-      const [lockInput, setLockInput] = useState("");
-      const [lockError, setLockError] = useState(0);
-      const [lockUntil, setLockUntil] = useState(0);
-      const [setupPin, setSetupPin] = useState("");
+      const [data, setData] = useState(loadData);
+      const [tab, setTab] = useState('home');
       const [unlocked, setUnlocked] = useState(false);
+      const [pinInput, setPinInput] = useState('');
+      const [pinError, setPinError] = useState(0);
+      const [lockUntil, setLockUntil] = useState(0);
+      const [setupPin, setSetupPin] = useState('');
 
-      useEffect(() => { save(data); }, [data]);
+      function upd(fn) {
+        setData(d => {
+          const n = { ...d };
+          fn(n);
+          saveData(n);
+          return n;
+        });
+      }
 
-      function upd(fn) { setData(d => { const n = fn({ ...d }); save(n); return n; }); }
-
+      // PIN SETUP
       if (!data.pin) {
         return (
-          <div style={{ ...s.wrap, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-            <div style={{ textAlign: "center", padding: 32 }}>
-              <div style={{ fontSize: 11, letterSpacing: "0.25em", color: TEXT3, marginBottom: 24 }}>飴野家 PERSONAL OS</div>
-              <div style={{ fontSize: 15, color: TEXT2, marginBottom: 28 }}>初回設定：PINコード（4桁）</div>
-              <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 24 }}>
-                {[0,1,2,3].map(i => <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: setupPin.length > i ? GOLD : BORDER }} />)}
+          <div style={{ background: C.navy, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ textAlign: 'center', padding: 32 }}>
+              <div style={{ fontSize: 10, letterSpacing: '0.25em', color: C.goldMid, marginBottom: 6 }}>飴野家 PERSONAL OS</div>
+              <div style={{ fontSize: 14, color: '#F5EDD8', marginBottom: 28 }}>PINコード（4桁）を設定</div>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 24 }}>
+                {[0,1,2,3].map(i => <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: setupPin.length > i ? C.gold : 'rgba(255,255,255,0.2)' }} />)}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 64px)", gap: 10, justifyContent: "center", marginBottom: 16 }}>
-                {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((n, i) => (
-                  <button key={i} onClick={() => {
-                    if (n === "⌫") { setSetupPin(p => p.slice(0,-1)); return; }
-                    if (n === "") return;
-                    if (setupPin.length < 4) setSetupPin(p => p + n);
-                  }} style={{ height: 54, background: n === "" ? "none" : SURFACE2, border: `1px solid ${n === "" ? "transparent" : BORDER}`, borderRadius: 4, color: TEXT, fontSize: 18, cursor: n === "" ? "default" : "pointer", fontFamily: "inherit" }}>{n}</button>
-                ))}
-              </div>
+              <PinPad value={setupPin} onChange={setSetupPin} maxLen={4} />
               {setupPin.length === 4 && (
-                <button onClick={() => { upd(d => { d.pin = setupPin; return d; }); setUnlocked(true); }} style={s.btn()}>設定する</button>
+                <button onClick={() => { upd(d => { d.pin = setupPin; }); setUnlocked(true); }} style={{ ...st.btn(), marginTop: 16 }}>設定する</button>
               )}
             </div>
           </div>
         );
       }
 
+      // LOCK
       if (!unlocked) {
         const now = Date.now();
         const locked = lockUntil > now;
         return (
-          <div style={{ ...s.wrap, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-            <div style={{ textAlign: "center", padding: 32 }}>
-              <div style={{ fontSize: 11, letterSpacing: "0.25em", color: TEXT3, marginBottom: 8 }}>飴野家 PERSONAL OS</div>
-              <div style={{ fontSize: 13, color: TEXT3, marginBottom: 28 }}>
-                {new Date().toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" })}
-              </div>
+          <div style={{ background: C.navy, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ textAlign: 'center', padding: 32 }}>
+              <div style={{ fontSize: 10, letterSpacing: '0.25em', color: C.goldMid, marginBottom: 6 }}>飴野家 PERSONAL OS</div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 28 }}>{todayStr()}</div>
               {locked ? (
                 <LockTimer lockUntil={lockUntil} />
               ) : (
                 <>
-                  <div style={{ display: "flex", gap: 12, justifyContent: "center", marginBottom: 24 }}>
-                    {[0,1,2,3].map(i => <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: lockInput.length > i ? GOLD : BORDER }} />)}
+                  <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 24 }}>
+                    {[0,1,2,3].map(i => <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: pinInput.length > i ? C.gold : 'rgba(255,255,255,0.2)' }} />)}
                   </div>
-                  {lockError > 0 && <div style={{ color: "#C96E6E", fontSize: 12, marginBottom: 12 }}>PINが違います（{lockError}/3）</div>}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 64px)", gap: 10, justifyContent: "center" }}>
-                    {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((n, i) => (
-                      <button key={i} onClick={() => {
-                        if (n === "⌫") { setLockInput(p => p.slice(0,-1)); return; }
-                        if (n === "") return;
-                        const next = lockInput + n;
-                        if (next.length <= 4) {
-                          setLockInput(next);
-                          if (next.length === 4) {
-                            if (next === data.pin) { setUnlocked(true); setLockInput(""); setLockError(0); }
-                            else {
-                              const e = lockError + 1;
-                              setLockError(e);
-                              setLockInput("");
-                              if (e >= 3) { setLockUntil(Date.now() + 30000); setLockError(0); }
-                            }
-                          }
-                        }
-                      }} style={{ height: 54, background: n === "" ? "none" : SURFACE2, border: `1px solid ${n === "" ? "transparent" : BORDER}`, borderRadius: 4, color: TEXT, fontSize: 18, cursor: n === "" ? "default" : "pointer", fontFamily: "inherit" }}>{n}</button>
-                    ))}
-                  </div>
+                  {pinError > 0 && <div style={{ color: '#E07070', fontSize: 12, marginBottom: 12 }}>PINが違います（{pinError}/3）</div>}
+                  <PinPad value={pinInput} onChange={v => {
+                    setPinInput(v);
+                    if (v.length === 4) {
+                      if (v === data.pin) { setUnlocked(true); setPinInput(''); setPinError(0); }
+                      else {
+                        const e = pinError + 1;
+                        setPinError(e);
+                        setPinInput('');
+                        if (e >= 3) { setLockUntil(Date.now() + 30000); setPinError(0); }
+                      }
+                    }
+                  }} maxLen={4} />
                 </>
               )}
             </div>
@@ -182,191 +158,293 @@
         );
       }
 
-      const todayHabits = Object.entries(HABIT_CFG).map(([k, v]) => ({
-        key: k, ...v,
-        done: data.checkedHabits?.[today()]?.[k] || false,
-        streak: data.habits[k]?.streak || 0,
-      }));
-      const doneCount = todayHabits.filter(h => h.done).length;
-      const todayTasks = (data.tasks || []).filter(t => !t.done).sort((a, b) => {
-        const po = { urgent: 0, high: 1, medium: 2, low: 3 };
-        return (po[a.priority] || 2) - (po[b.priority] || 2);
-      });
-
-      function toggleHabit(key) {
-        const td = today();
-        upd(d => {
-          if (!d.checkedHabits) d.checkedHabits = {};
-          if (!d.checkedHabits[td]) d.checkedHabits[td] = {};
-          const wasDone = d.checkedHabits[td][key];
-          d.checkedHabits[td][key] = !wasDone;
-          const h = d.habits[key];
-          if (!wasDone) {
-            const yest = new Date(); yest.setDate(yest.getDate() - 1);
-            const ys = yest.toISOString().split("T")[0];
-            d.habits[key] = { streak: (h.lastDate === ys || h.lastDate === td) ? h.streak + 1 : 1, lastDate: td };
-          } else {
-            d.habits[key] = { streak: Math.max(0, h.streak - 1), lastDate: h.lastDate };
-          }
-          return d;
-        });
-      }
+      // MAIN
+      const td = today();
+      const month = td.slice(0, 7);
+      const recs = (data.finance.records || []).filter(r => r.date && r.date.startsWith(month));
+      const totalIncome = recs.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0) + data.finance.income;
+      const totalExpense = recs.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0) + data.finance.investment + data.finance.defense + data.finance.gym + data.finance.subs + data.finance.daily;
+      const freeBalance = totalIncome - totalExpense;
 
       return (
-        <div style={s.wrap}>
-          <div style={{ padding: "22px 20px 16px", borderBottom: `1px solid ${BORDER}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-              <div>
-                <div style={{ fontSize: 10, letterSpacing: "0.25em", color: TEXT3, marginBottom: 3 }}>飴野家 PERSONAL OS</div>
-                <div style={{ fontSize: 18, letterSpacing: "0.04em" }}>
-                  {new Date().toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" })}
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 22, color: doneCount === todayHabits.length ? GOLD : TEXT }}>
-                  {doneCount}<span style={{ fontSize: 12, color: TEXT3 }}>/{todayHabits.length}</span>
-                </div>
-                <div style={{ fontSize: 10, color: TEXT3, letterSpacing: "0.1em" }}>習慣</div>
+        <div style={{ maxWidth: 480, margin: '0 auto', background: C.cream, minHeight: '100vh' }}>
+          {/* Header */}
+          <div style={{ background: C.navy, padding: '16px 18px 12px' }}>
+            <div style={{ fontSize: 9, letterSpacing: '0.25em', color: C.goldMid, marginBottom: 4 }}>飴野家 PERSONAL OS</div>
+            <div style={{ ...st.between }}>
+              <div style={{ fontSize: 16, color: '#F5EDD8' }}>{todayStr()}</div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 11, color: C.goldMid }}>今月の自由枠</div>
+                <div style={{ fontSize: 18, color: freeBalance >= 0 ? C.gold : '#E07070' }}>{fmtYen(freeBalance)}</div>
               </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", overflowX: "auto", borderBottom: `1px solid ${BORDER}`, position: "sticky", top: 0, background: DARK, zIndex: 10 }}>
+          {/* Tabs */}
+          <div className="tabs-scroll" style={{ background: C.navy, borderBottom: `1px solid rgba(184,149,90,0.3)`, position: 'sticky', top: 0, zIndex: 100 }}>
             {TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: "0 0 auto", padding: "12px 14px", background: "none", border: "none", borderBottom: tab === t.id ? `2px solid ${GOLD}` : "2px solid transparent", color: tab === t.id ? GOLD : TEXT3, fontSize: 11, letterSpacing: "0.08em", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
-                <span style={{ marginRight: 4 }}>{t.icon}</span>{t.label}
+              <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: '0 0 auto', padding: '10px 13px', background: 'none', border: 'none', borderBottom: tab === t.id ? `2px solid ${C.gold}` : '2px solid transparent', color: tab === t.id ? C.gold : 'rgba(245,237,216,0.5)', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
+                {t.label}
               </button>
             ))}
           </div>
 
-          <div style={{ padding: "18px 18px 100px" }}>
-            {tab === "home" && <HomeTab data={data} todayHabits={todayHabits} todayTasks={todayTasks} toggleHabit={toggleHabit} upd={upd} />}
-            {tab === "tasks" && <TasksTab data={data} upd={upd} />}
-            {tab === "diary" && <DiaryTab data={data} upd={upd} />}
-            {tab === "finance" && <FinanceTab data={data} upd={upd} />}
-            {tab === "sleep" && <SleepTab data={data} upd={upd} />}
-            {tab === "fire" && <FireTab data={data} upd={upd} />}
+          {/* Content */}
+          <div style={{ padding: '16px 16px 80px' }}>
+            {tab === 'home' && <HomeTab data={data} upd={upd} freeBalance={freeBalance} totalIncome={totalIncome} totalExpense={totalExpense} />}
+            {tab === 'schedule' && <ScheduleTab data={data} upd={upd} />}
+            {tab === 'todo' && <TodoTab data={data} upd={upd} />}
+            {tab === 'goals' && <GoalsTab data={data} upd={upd} />}
+            {tab === 'money' && <MoneyTab data={data} upd={upd} />}
+            {tab === 'wishlist' && <WishlistTab data={data} upd={upd} />}
+            {tab === 'resist' && <ResistTab data={data} upd={upd} />}
+            {tab === 'diary' && <DiaryTab data={data} upd={upd} />}
           </div>
+        </div>
+      );
+    }
+
+    function PinPad({ value, onChange, maxLen }) {
+      return (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 64px)', gap: 10, justifyContent: 'center' }}>
+          {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((n, i) => (
+            <button key={i} onClick={() => {
+              if (n === '⌫') { onChange(value.slice(0, -1)); return; }
+              if (n === '') return;
+              if (value.length < maxLen) onChange(value + n);
+            }} style={{ height: 54, background: n === '' ? 'none' : 'rgba(255,255,255,0.1)', border: `1px solid ${n === '' ? 'transparent' : 'rgba(255,255,255,0.2)'}`, borderRadius: 4, color: '#F5EDD8', fontSize: 18, cursor: n === '' ? 'default' : 'pointer' }}>{n}</button>
+          ))}
         </div>
       );
     }
 
     function LockTimer({ lockUntil }) {
-      const [remaining, setRemaining] = useState(Math.ceil((lockUntil - Date.now()) / 1000));
+      const [rem, setRem] = useState(Math.ceil((lockUntil - Date.now()) / 1000));
       useEffect(() => {
-        const t = setInterval(() => {
-          const r = Math.ceil((lockUntil - Date.now()) / 1000);
-          setRemaining(r);
-          if (r <= 0) clearInterval(t);
-        }, 1000);
+        const t = setInterval(() => { const r = Math.ceil((lockUntil - Date.now()) / 1000); setRem(r); if (r <= 0) clearInterval(t); }, 1000);
         return () => clearInterval(t);
       }, [lockUntil]);
-      return <div style={{ color: "#C96E6E", fontSize: 13, marginBottom: 16 }}>{remaining}秒後に再試行できます</div>;
+      return <div style={{ color: '#E07070', fontSize: 13 }}>{rem}秒後に再試行できます</div>;
     }
 
-    function HomeTab({ data, todayHabits, todayTasks, toggleHabit }) {
+    // ── HOME ──
+    function HomeTab({ data, upd, freeBalance, totalIncome, totalExpense }) {
+      const td = today();
+      const todaySchedule = (data.schedule || []).filter(s => s.date === td).sort((a, b) => a.start.localeCompare(b.start));
+      const todayTodos = (data.todos || []).filter(t => !t.done).sort((a, b) => {
+        const po = { urgent: 0, high: 1, medium: 2, low: 3 };
+        return (po[a.priority] || 2) - (po[b.priority] || 2);
+      }).slice(0, 5);
+      const upcomingBdays = (data.birthdays || []).filter(b => {
+        const now = new Date();
+        const yr = now.getFullYear();
+        const bday = new Date(`${yr}-${b.date}`);
+        if (isNaN(bday)) return false;
+        const diff = (bday - now) / (1000 * 60 * 60 * 24);
+        return diff >= 0 && diff <= 30;
+      });
+      const isBlack = freeBalance >= 0;
+
       return (
         <div>
-          <div style={s.label}>今日の習慣</div>
-          {todayHabits.map(h => (
-            <div key={h.key} onClick={() => toggleHabit(h.key)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", marginBottom: 8, background: h.done ? `${GOLD}12` : SURFACE, border: `1px solid ${h.done ? GOLD + "40" : BORDER}`, borderRadius: 4, cursor: "pointer" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 32, height: 32, borderRadius: "50%", background: h.done ? GOLD : SURFACE2, border: `1px solid ${h.done ? GOLD : BORDER}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: h.done ? DARK : TEXT3, fontWeight: "bold" }}>
-                  {h.done ? "✓" : h.icon}
-                </div>
-                <span style={{ fontSize: 13, color: h.done ? TEXT2 : TEXT }}>{h.label}</span>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 16, color: h.streak > 0 ? GOLD : BORDER }}>{h.streak}</div>
-                <div style={{ fontSize: 9, color: TEXT3, letterSpacing: "0.1em" }}>streak</div>
-              </div>
+          <div style={st.label}>今日の予定</div>
+          {todaySchedule.length === 0 ? <div style={{ fontSize: 12, color: C.text3, marginBottom: 14 }}>予定なし</div> : todaySchedule.map(s => (
+            <div key={s.id} style={{ ...st.card, borderLeft: `3px solid ${C.gold}`, padding: '11px 14px', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: C.text3 }}>{s.start}{s.end ? ' — ' + s.end : ''}</div>
+              <div style={{ fontSize: 13, color: C.text }}>{s.title}</div>
             </div>
           ))}
-          <div style={{ marginTop: 22 }}>
-            <div style={s.label}>今日のタスク</div>
-            {todayTasks.length === 0 && <div style={{ fontSize: 13, color: TEXT3, padding: "10px 0" }}>タスクなし</div>}
-            {todayTasks.slice(0, 5).map(t => {
-              const p = PRIORITY.find(x => x.key === t.priority) || PRIORITY[2];
+
+          <div style={st.label}>今月の収支予測</div>
+          <div style={{ ...st.card, borderLeft: `3px solid ${isBlack ? C.green : C.red}`, marginBottom: 14 }}>
+            <div style={st.between}>
+              <div style={{ fontSize: 12, color: C.text2 }}>今月の収支</div>
+              <div style={{ fontSize: 20, color: isBlack ? C.green : C.red }}>{isBlack ? '+' : ''}{fmtYen(freeBalance)}</div>
+            </div>
+            <div style={{ fontSize: 10, color: C.text3, marginTop: 4 }}>{isBlack ? '黒字予測' : '赤字予測'} — 収入 {fmtYen(totalIncome)} / 支出 {fmtYen(totalExpense)}</div>
+          </div>
+
+          <div style={st.label}>今日のToDo</div>
+          {todayTodos.length === 0 ? <div style={{ fontSize: 12, color: C.text3, marginBottom: 14 }}>タスクなし</div> : todayTodos.map(t => {
+            const pc = PCOLOR[t.priority] || PCOLOR.medium;
+            return (
+              <div key={t.id} style={{ ...st.card, borderLeft: `3px solid ${pc}`, padding: '11px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <CheckCircle done={t.done} onClick={() => upd(d => { d.todos = d.todos.map(x => x.id === t.id ? { ...x, done: !x.done } : x); })} color={C.gold} />
+                <div style={{ flex: 1, fontSize: 13, color: C.text }}>{t.text}</div>
+                <span style={{ fontSize: 10, color: pc, border: `1px solid ${pc}40`, borderRadius: 2, padding: '1px 5px' }}>{PLABEL[t.priority]}</span>
+              </div>
+            );
+          })}
+
+          {upcomingBdays.length > 0 && (
+            <>
+              <div style={st.label}>今月の誕生日</div>
+              {upcomingBdays.map(b => (
+                <div key={b.id} style={{ ...st.card, padding: '11px 14px', marginBottom: 8, display: 'flex', gap: 10 }}>
+                  <div style={{ fontSize: 18 }}>🎂</div>
+                  <div><div style={{ fontSize: 13, color: C.text }}>{b.name}</div><div style={{ fontSize: 11, color: C.text3 }}>{b.date}</div></div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      );
+    }
+
+    // ── SCHEDULE ──
+    function ScheduleTab({ data, upd }) {
+      const [viewDate, setViewDate] = useState(today());
+      const [showForm, setShowForm] = useState(false);
+      const [showBdayForm, setShowBdayForm] = useState(false);
+      const [form, setForm] = useState({ title: '', start: '', end: '', note: '' });
+      const [bdayForm, setBdayForm] = useState({ name: '', date: '' });
+
+      const items = (data.schedule || []).filter(s => s.date === viewDate).sort((a, b) => a.start.localeCompare(b.start));
+      const hours = Array.from({ length: 18 }, (_, i) => i + 6);
+
+      function saveSchedule() {
+        if (!form.title || !form.start) return;
+        upd(d => { d.schedule = [...d.schedule, { id: Date.now(), date: viewDate, ...form }]; });
+        setForm({ title: '', start: '', end: '', note: '' });
+        setShowForm(false);
+      }
+
+      function saveBday() {
+        if (!bdayForm.name || !bdayForm.date) return;
+        upd(d => { d.birthdays = [...(d.birthdays || []), { id: Date.now(), ...bdayForm }]; });
+        setBdayForm({ name: '', date: '' });
+        setShowBdayForm(false);
+      }
+
+      return (
+        <div>
+          <div style={{ ...st.between, marginBottom: 12 }}>
+            <div style={st.label}>スケジュール</div>
+            <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 追加</button>
+          </div>
+          <input type="date" value={viewDate} onChange={e => setViewDate(e.target.value)} style={{ ...st.inp, marginBottom: 12 }} />
+
+          {showForm && (
+            <div style={{ ...st.card, border: `1px solid ${C.goldMid}`, marginBottom: 12 }}>
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="予定タイトル" style={{ ...st.inp, marginBottom: 8 }} />
+              <div style={{ ...st.grid2, marginBottom: 8 }}>
+                <div><div style={{ fontSize: 10, color: C.text3, marginBottom: 4 }}>開始</div><input type="time" value={form.start} onChange={e => setForm(f => ({ ...f, start: e.target.value }))} style={st.inp} /></div>
+                <div><div style={{ fontSize: 10, color: C.text3, marginBottom: 4 }}>終了</div><input type="time" value={form.end} onChange={e => setForm(f => ({ ...f, end: e.target.value }))} style={st.inp} /></div>
+              </div>
+              <input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="メモ（任意）" style={{ ...st.inp, marginBottom: 10 }} />
+              <button onClick={saveSchedule} style={st.btn()}>保存</button>
+            </div>
+          )}
+
+          <div style={{ paddingLeft: 44, position: 'relative' }}>
+            {hours.map(h => {
+              const hstr = String(h).padStart(2, '0') + ':00';
+              const hItems = items.filter(s => s.start && s.start.startsWith(String(h).padStart(2, '0')));
               return (
-                <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", marginBottom: 7, background: SURFACE, border: `1px solid ${BORDER}`, borderLeft: `3px solid ${p.color}`, borderRadius: 4 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, color: TEXT }}>{t.text}</div>
-                    {t.deadline && <div style={{ fontSize: 10, color: TEXT3, marginTop: 2 }}>{t.deadline}</div>}
+                <div key={h} style={{ display: 'flex', minHeight: 40, borderTop: `1px solid ${C.border}`, position: 'relative' }}>
+                  <div style={{ position: 'absolute', left: -44, width: 40, fontSize: 10, color: C.text3, paddingTop: 4, textAlign: 'right' }}>{hstr}</div>
+                  <div style={{ flex: 1, padding: '2px 0' }}>
+                    {hItems.map(s => (
+                      <div key={s.id} style={{ background: C.goldLight, border: `1px solid ${C.goldMid}`, borderRadius: 3, padding: '4px 8px', marginBottom: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: C.gold }}>{s.start}{s.end ? ' — ' + s.end : ''}</div>
+                          <div style={{ fontSize: 13, color: C.navy }}>{s.title}</div>
+                          {s.note && <div style={{ fontSize: 10, color: C.text3 }}>{s.note}</div>}
+                        </div>
+                        <button onClick={() => upd(d => { d.schedule = d.schedule.filter(x => x.id !== s.id); })} style={{ background: 'none', border: 'none', color: C.text3, cursor: 'pointer', fontSize: 16 }}>×</button>
+                      </div>
+                    ))}
                   </div>
-                  <div style={{ fontSize: 10, color: p.color, border: `1px solid ${p.color}40`, borderRadius: 3, padding: "2px 6px" }}>{p.label}</div>
                 </div>
               );
             })}
-            {todayTasks.length > 5 && <div style={{ fontSize: 12, color: TEXT3, textAlign: "center" }}>他 {todayTasks.length - 5} 件</div>}
+          </div>
+
+          <div style={{ marginTop: 24 }}>
+            <div style={{ ...st.between, marginBottom: 10 }}>
+              <div style={st.label}>誕生日・記念日</div>
+              <button onClick={() => setShowBdayForm(!showBdayForm)} style={st.btn()}>+ 追加</button>
+            </div>
+            {showBdayForm && (
+              <div style={{ ...st.card, border: `1px solid ${C.goldMid}`, marginBottom: 10 }}>
+                <input value={bdayForm.name} onChange={e => setBdayForm(f => ({ ...f, name: e.target.value }))} placeholder="名前" style={{ ...st.inp, marginBottom: 8 }} />
+                <input value={bdayForm.date} onChange={e => setBdayForm(f => ({ ...f, date: e.target.value }))} placeholder="例: 05-15（月-日）" style={{ ...st.inp, marginBottom: 10 }} />
+                <button onClick={saveBday} style={st.btn()}>保存</button>
+              </div>
+            )}
+            {(data.birthdays || []).length === 0 && <div style={{ fontSize: 12, color: C.text3 }}>まだ登録なし</div>}
+            {(data.birthdays || []).map(b => (
+              <div key={b.id} style={{ ...st.card, padding: '11px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ fontSize: 18 }}>🎂</div>
+                <div style={{ flex: 1 }}><div style={{ fontSize: 13, color: C.text }}>{b.name}</div><div style={{ fontSize: 11, color: C.text3 }}>{b.date}</div></div>
+                <button onClick={() => upd(d => { d.birthdays = d.birthdays.filter(x => x.id !== b.id); })} style={{ background: 'none', border: 'none', color: C.text3, cursor: 'pointer', fontSize: 16 }}>×</button>
+              </div>
+            ))}
           </div>
         </div>
       );
     }
 
-    function TasksTab({ data, upd }) {
-      const [form, setForm] = useState({ text: "", priority: "medium", deadline: "", repeat: "" });
-      const [show, setShow] = useState(false);
-      const [filter, setFilter] = useState("all");
+    // ── TODO ──
+    function TodoTab({ data, upd }) {
+      const [filter, setFilter] = useState('active');
+      const [showForm, setShowForm] = useState(false);
+      const [form, setForm] = useState({ text: '', priority: 'medium', deadline: '', repeat: '' });
 
-      function addTask() {
+      function saveTodo() {
         if (!form.text.trim()) return;
-        upd(d => { d.tasks = [...(d.tasks || []), { id: Date.now(), ...form, done: false, createdAt: today() }]; return d; });
-        setForm({ text: "", priority: "medium", deadline: "", repeat: "" });
-        setShow(false);
+        upd(d => { d.todos = [...d.todos, { id: Date.now(), ...form, done: false }]; });
+        setForm({ text: '', priority: 'medium', deadline: '', repeat: '' });
+        setShowForm(false);
       }
 
-      const tasks = (data.tasks || []).filter(t => filter === "done" ? t.done : !t.done).sort((a, b) => {
+      const todos = (data.todos || []).filter(t => filter === 'done' ? t.done : !t.done).sort((a, b) => {
         const po = { urgent: 0, high: 1, medium: 2, low: 3 };
         return (po[a.priority] || 2) - (po[b.priority] || 2);
       });
 
       return (
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <div style={s.label}>タスク管理</div>
-            <button onClick={() => setShow(!show)} style={s.btn()}>+ 追加</button>
+          <div style={{ ...st.between, marginBottom: 12 }}>
+            <div style={st.label}>タスク管理</div>
+            <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 追加</button>
           </div>
-          {show && (
-            <div style={{ ...s.card, border: `1px solid ${GOLD}40`, marginBottom: 16 }}>
-              <input value={form.text} onChange={e => setForm(f => ({ ...f, text: e.target.value }))} placeholder="タスク内容" style={{ ...s.input, marginBottom: 8 }} />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} style={s.input}>
-                  {PRIORITY.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+          {showForm && (
+            <div style={{ ...st.card, border: `1px solid ${C.goldMid}`, marginBottom: 12 }}>
+              <input value={form.text} onChange={e => setForm(f => ({ ...f, text: e.target.value }))} placeholder="タスク内容" style={{ ...st.inp, marginBottom: 8 }} />
+              <div style={{ ...st.grid2, marginBottom: 8 }}>
+                <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} style={st.inp}>
+                  <option value="urgent">緊急</option><option value="high">高</option><option value="medium" >中</option><option value="low">低</option>
                 </select>
-                <input type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} style={s.input} />
+                <input type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} style={st.inp} />
               </div>
-              <select value={form.repeat} onChange={e => setForm(f => ({ ...f, repeat: e.target.value }))} style={{ ...s.input, marginBottom: 10 }}>
-                <option value="">繰り返しなし</option>
-                <option value="daily">毎日</option>
-                <option value="weekly">毎週</option>
-                <option value="monthly">毎月</option>
+              <select value={form.repeat} onChange={e => setForm(f => ({ ...f, repeat: e.target.value }))} style={{ ...st.inp, marginBottom: 10 }}>
+                <option value="">繰り返しなし</option><option value="daily">毎日</option><option value="weekly">毎週</option><option value="monthly">毎月</option>
               </select>
-              <button onClick={addTask} style={s.btn()}>保存</button>
+              <button onClick={saveTodo} style={st.btn()}>保存</button>
             </div>
           )}
-          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-            {[["all","未完了"],["done","完了済"]].map(([k, l]) => (
-              <button key={k} onClick={() => setFilter(k)} style={{ padding: "5px 14px", background: filter === k ? GOLD : "none", border: `1px solid ${filter === k ? GOLD : BORDER}`, borderRadius: 3, color: filter === k ? DARK : TEXT3, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            {[['active', '未完了'], ['done', '完了']].map(([k, l]) => (
+              <button key={k} onClick={() => setFilter(k)} style={{ padding: '5px 12px', background: filter === k ? C.gold : 'none', border: `1px solid ${filter === k ? C.gold : C.border}`, borderRadius: 3, color: filter === k ? '#fff' : C.text3, fontSize: 11, cursor: 'pointer' }}>{l}</button>
             ))}
           </div>
-          {tasks.map(t => {
-            const p = PRIORITY.find(x => x.key === t.priority) || PRIORITY[2];
+          {todos.length === 0 && <div style={{ fontSize: 12, color: C.text3 }}>タスクなし</div>}
+          {todos.map(t => {
+            const pc = PCOLOR[t.priority] || PCOLOR.medium;
             const overdue = t.deadline && t.deadline < today() && !t.done;
             return (
-              <div key={t.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", marginBottom: 8, background: SURFACE, border: `1px solid ${BORDER}`, borderLeft: `3px solid ${p.color}`, borderRadius: 4 }}>
-                <div onClick={() => upd(d => { d.tasks = d.tasks.map(x => x.id === t.id ? { ...x, done: !x.done } : x); return d; })}
-                  style={{ width: 18, height: 18, borderRadius: "50%", border: `1.5px solid ${t.done ? GOLD : BORDER}`, background: t.done ? GOLD : "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginTop: 2, fontSize: 10, color: DARK }}>
-                  {t.done ? "✓" : ""}
-                </div>
+              <div key={t.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', marginBottom: 8, background: C.surface, border: `1px solid ${C.border}`, borderLeft: `3px solid ${pc}`, borderRadius: 4 }}>
+                <CheckCircle done={t.done} onClick={() => upd(d => { d.todos = d.todos.map(x => x.id === t.id ? { ...x, done: !x.done } : x); })} color={C.gold} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, color: t.done ? TEXT3 : TEXT, textDecoration: t.done ? "line-through" : "none" }}>{t.text}</div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 10, color: p.color, border: `1px solid ${p.color}40`, borderRadius: 2, padding: "1px 5px" }}>{p.label}</span>
-                    {t.deadline && <span style={{ fontSize: 10, color: overdue ? "#C96E6E" : TEXT3 }}>{t.deadline}</span>}
-                    {t.repeat && <span style={{ fontSize: 10, color: TEXT3 }}>{t.repeat === "daily" ? "毎日" : t.repeat === "weekly" ? "毎週" : "毎月"}</span>}
+                  <div style={{ fontSize: 13, color: t.done ? C.text3 : C.text, textDecoration: t.done ? 'line-through' : 'none' }}>{t.text}</div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 10, color: pc, border: `1px solid ${pc}40`, borderRadius: 2, padding: '1px 5px' }}>{PLABEL[t.priority]}</span>
+                    {t.deadline && <span style={{ fontSize: 10, color: overdue ? C.red : C.text3 }}>{t.deadline}</span>}
+                    {t.repeat && <span style={{ fontSize: 10, color: C.text3 }}>{{ daily: '毎日', weekly: '毎週', monthly: '毎月' }[t.repeat]}</span>}
                   </div>
                 </div>
-                <button onClick={() => upd(d => { d.tasks = d.tasks.filter(x => x.id !== t.id); return d; })} style={{ background: "none", border: "none", color: TEXT3, cursor: "pointer", fontSize: 16, padding: 0 }}>×</button>
+                <button onClick={() => upd(d => { d.todos = d.todos.filter(x => x.id !== t.id); })} style={{ background: 'none', border: 'none', color: C.text3, cursor: 'pointer', fontSize: 16 }}>×</button>
               </div>
             );
           })}
@@ -374,41 +452,346 @@
       );
     }
 
+    // ── GOALS ──
+    function GoalsTab({ data, upd }) {
+      const [showForm, setShowForm] = useState(false);
+      const [form, setForm] = useState({ title: '', current: '', target: '', unit: '', deadline: '', steps: '' });
+
+      function saveGoal() {
+        if (!form.title) return;
+        const steps = form.steps.split('\n').filter(s => s.trim()).map(s => ({ text: s.trim(), done: false }));
+        upd(d => { d.goals = [...(d.goals || []), { id: Date.now(), title: form.title, current: parseFloat(form.current) || 0, target: parseFloat(form.target) || 100, unit: form.unit, deadline: form.deadline, steps }]; });
+        setForm({ title: '', current: '', target: '', unit: '', deadline: '', steps: '' });
+        setShowForm(false);
+      }
+
+      return (
+        <div>
+          <div style={{ ...st.between, marginBottom: 12 }}>
+            <div style={st.label}>目標管理</div>
+            <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 追加</button>
+          </div>
+          {showForm && (
+            <div style={{ ...st.card, border: `1px solid ${C.goldMid}`, marginBottom: 12 }}>
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="目標名（例: TOEIC 860点）" style={{ ...st.inp, marginBottom: 8 }} />
+              <div style={{ ...st.grid2, marginBottom: 8 }}>
+                <input type="number" value={form.current} onChange={e => setForm(f => ({ ...f, current: e.target.value }))} placeholder="現在値" style={st.inp} />
+                <input type="number" value={form.target} onChange={e => setForm(f => ({ ...f, target: e.target.value }))} placeholder="目標値" style={st.inp} />
+              </div>
+              <div style={{ ...st.grid2, marginBottom: 8 }}>
+                <input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} placeholder="単位（点・kgなど）" style={st.inp} />
+                <input type="date" value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} style={st.inp} />
+              </div>
+              <textarea value={form.steps} onChange={e => setForm(f => ({ ...f, steps: e.target.value }))} placeholder="ステップ（改行区切り）" rows={3} style={{ ...st.inp, resize: 'vertical', marginBottom: 10 }} />
+              <button onClick={saveGoal} style={st.btn()}>保存</button>
+            </div>
+          )}
+          {(data.goals || []).length === 0 && <div style={{ fontSize: 12, color: C.text3 }}>目標を追加してください</div>}
+          {(data.goals || []).map(g => {
+            const prog = g.target > 0 ? Math.min(100, Math.round((g.current / g.target) * 100)) : 0;
+            return (
+              <div key={g.id} style={{ ...st.card, marginBottom: 10 }}>
+                <div style={st.between}>
+                  <div style={{ fontSize: 14, color: C.navy }}>{g.title}</div>
+                  <button onClick={() => upd(d => { d.goals = d.goals.filter(x => x.id !== g.id); })} style={{ background: 'none', border: 'none', color: C.text3, cursor: 'pointer', fontSize: 16 }}>×</button>
+                </div>
+                {g.deadline && <div style={{ fontSize: 11, color: C.text3, marginTop: 4 }}>期限: {g.deadline}</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0' }}>
+                  <div style={{ flex: 1, height: 6, background: C.creamDark, borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: prog + '%', height: '100%', background: prog >= 100 ? C.green : C.gold, borderRadius: 3, transition: 'width 0.3s' }} />
+                  </div>
+                  <div style={{ fontSize: 12, color: C.gold, minWidth: 36, textAlign: 'right' }}>{prog}%</div>
+                </div>
+                <div style={{ fontSize: 12, color: C.text2 }}>{g.current}{g.unit} / {g.target}{g.unit}</div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                  <input type="number" id={`goal-upd-${g.id}`} placeholder="現在値を更新" style={{ ...st.inp, flex: 1, fontSize: 12 }} />
+                  <button onClick={() => {
+                    const v = parseFloat(document.getElementById(`goal-upd-${g.id}`)?.value);
+                    if (!isNaN(v)) upd(d => { d.goals = d.goals.map(x => x.id === g.id ? { ...x, current: v } : x); });
+                  }} style={{ ...st.btn(), fontSize: 11 }}>更新</button>
+                </div>
+                {g.steps && g.steps.length > 0 && (
+                  <div style={{ marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                    <div style={{ fontSize: 9, color: C.text3, marginBottom: 6, letterSpacing: '0.1em' }}>ステップ</div>
+                    {g.steps.map((st2, si) => (
+                      <div key={si} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                        <CheckCircle done={st2.done} onClick={() => upd(d => { const g2 = d.goals.find(x => x.id === g.id); if (g2) g2.steps[si].done = !g2.steps[si].done; })} color={C.gold} size={16} />
+                        <div style={{ fontSize: 12, color: st2.done ? C.text3 : C.text, textDecoration: st2.done ? 'line-through' : 'none' }}>{st2.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ── MONEY ──
+    function MoneyTab({ data, upd }) {
+      const [viewMonth, setViewMonth] = useState(today().slice(0, 7));
+      const [showForm, setShowForm] = useState(false);
+      const [form, setForm] = useState({ date: today(), type: 'expense', amount: '', category: '', note: '' });
+
+      function saveRecord() {
+        const amount = parseInt(form.amount);
+        if (!amount || isNaN(amount)) return;
+        upd(d => { d.finance.records = [{ id: Date.now(), ...form, amount }, ...d.finance.records]; });
+        setForm({ date: today(), type: 'expense', amount: '', category: '', note: '' });
+        setShowForm(false);
+      }
+
+      const month = today().slice(0, 7);
+      const recs = (data.finance.records || []).filter(r => r.date && r.date.startsWith(viewMonth));
+      const addIncome = recs.filter(r => r.type === 'income').reduce((s, r) => s + r.amount, 0);
+      const addExpense = recs.filter(r => r.type === 'expense').reduce((s, r) => s + r.amount, 0);
+      const fixedExp = viewMonth === month ? data.finance.investment + data.finance.defense + data.finance.gym + data.finance.subs + data.finance.daily : 0;
+      const totalIncome = addIncome + (viewMonth === month ? data.finance.income : 0);
+      const totalExpense = addExpense + fixedExp;
+      const balance = totalIncome - totalExpense;
+
+      const defProg = Math.min(100, Math.round(((data.finance.defenseTotal || 0) / 500000) * 100));
+      const invProg = Math.min(100, Math.round(((data.finance.investTotal || 0) / 1495000) * 100));
+
+      const fireMonths = 7 * 12;
+      const fireRate = 0.07 / 12;
+      let projected = (data.finance.investTotal || 0);
+      for (let i = 0; i < fireMonths; i++) projected = projected * (1 + fireRate) + data.finance.investment;
+      projected = Math.round(projected / 10000);
+
+      return (
+        <div>
+          <div style={{ ...st.between, marginBottom: 12 }}>
+            <div style={st.label}>収支管理</div>
+            <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 追加</button>
+          </div>
+          <input type="month" value={viewMonth} onChange={e => setViewMonth(e.target.value)} style={{ ...st.inp, marginBottom: 12 }} />
+
+          <div style={{ ...st.grid2, marginBottom: 12 }}>
+            {[{ l: '収入', v: totalIncome, c: C.green }, { l: '支出', v: totalExpense, c: C.red }, { l: '収支', v: balance, c: balance >= 0 ? C.gold : C.red }, { l: '自由枠', v: balance > 0 ? balance : 0, c: C.gold }].map(x => (
+              <div key={x.l} style={{ background: C.creamDark, border: `1px solid ${C.border}`, borderRadius: 4, padding: '12px', textAlign: 'center' }}>
+                <div style={{ fontSize: 9, color: C.text3, marginBottom: 4 }}>{x.l}</div>
+                <div style={{ fontSize: 16, color: x.c }}>{fmtMan(x.v)}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={st.label}>積立状況</div>
+          <div style={{ ...st.card, marginBottom: 10 }}>
+            <div style={st.between}><div style={{ fontSize: 12, color: C.text2 }}>投資累計（目標149.5万）</div><div style={{ fontSize: 13, color: C.gold }}>{fmtYen(data.finance.investTotal || 0)}</div></div>
+            <ProgressBar value={invProg} color={C.gold} />
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <input type="number" id="invest-upd" placeholder="累計投資額を入力" style={{ ...st.inp, flex: 1, fontSize: 12 }} />
+              <button onClick={() => { const v = parseFloat(document.getElementById('invest-upd')?.value); if (!isNaN(v)) upd(d => { d.finance.investTotal = v; }); }} style={{ ...st.btn(), fontSize: 11 }}>更新</button>
+            </div>
+          </div>
+          <div style={{ ...st.card, marginBottom: 12 }}>
+            <div style={st.between}><div style={{ fontSize: 12, color: C.text2 }}>生活防衛費（目標50万）</div><div style={{ fontSize: 13, color: C.navy }}>{fmtYen(data.finance.defenseTotal || 0)}</div></div>
+            <ProgressBar value={defProg} color={C.navy} />
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <input type="number" id="defense-upd" placeholder="累計防衛費を入力" style={{ ...st.inp, flex: 1, fontSize: 12 }} />
+              <button onClick={() => { const v = parseFloat(document.getElementById('defense-upd')?.value); if (!isNaN(v)) upd(d => { d.finance.defenseTotal = v; }); }} style={{ ...st.btn(), fontSize: 11 }}>更新</button>
+            </div>
+          </div>
+
+          <div style={st.label}>FIREシミュレーション</div>
+          <div style={{ ...st.card, background: C.goldLight, border: `1px solid ${C.goldMid}`, marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: C.text3, marginBottom: 4 }}>30歳時点の予測資産（年利7%）</div>
+            <div style={{ fontSize: 24, color: C.gold }}>{projected.toLocaleString()}<span style={{ fontSize: 13, color: C.text2 }}>万円</span></div>
+            <div style={{ fontSize: 10, color: C.text3, marginTop: 6 }}>月{data.finance.investment.toLocaleString()}円投資 × 7年継続</div>
+          </div>
+
+          {showForm && (
+            <div style={{ ...st.card, border: `1px solid ${C.goldMid}`, marginBottom: 12 }}>
+              <div style={{ ...st.grid2, marginBottom: 8 }}>
+                <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={st.inp} />
+                <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={st.inp}>
+                  <option value="expense">支出</option><option value="income">収入</option>
+                </select>
+              </div>
+              <input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="金額（円）" style={{ ...st.inp, marginBottom: 8 }} />
+              <input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="カテゴリ" style={{ ...st.inp, marginBottom: 8 }} />
+              <input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="メモ" style={{ ...st.inp, marginBottom: 10 }} />
+              <button onClick={saveRecord} style={st.btn()}>保存</button>
+            </div>
+          )}
+
+          <div style={st.label}>取引履歴</div>
+          {recs.length === 0 && <div style={{ fontSize: 12, color: C.text3 }}>この月の記録なし</div>}
+          {recs.map(r => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', marginBottom: 7, background: C.surface, border: `1px solid ${C.border}`, borderLeft: `3px solid ${r.type === 'income' ? C.green : C.red}`, borderRadius: 4 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, color: C.text }}>{r.category || ''} {r.note && <span style={{ fontSize: 11, color: C.text3 }}>— {r.note}</span>}</div>
+                <div style={{ fontSize: 10, color: C.text3 }}>{r.date}</div>
+              </div>
+              <div style={{ fontSize: 13, color: r.type === 'income' ? C.green : C.red }}>{r.type === 'income' ? '+' : '-'}{r.amount.toLocaleString()}</div>
+              <button onClick={() => upd(d => { d.finance.records = d.finance.records.filter(x => x.id !== r.id); })} style={{ background: 'none', border: 'none', color: C.text3, cursor: 'pointer', fontSize: 16 }}>×</button>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ── WISHLIST ──
+    function WishlistTab({ data, upd }) {
+      const [showForm, setShowForm] = useState(false);
+      const [form, setForm] = useState({ name: '', price: '', time: '' });
+
+      function saveWish() {
+        const price = parseInt(form.price);
+        if (!form.name || !price) return;
+        upd(d => { d.wishlist = [...(d.wishlist || []), { id: Date.now(), name: form.name, price, time: form.time }]; });
+        setForm({ name: '', price: '', time: '' });
+        setShowForm(false);
+      }
+
+      return (
+        <div>
+          <div style={{ ...st.between, marginBottom: 12 }}>
+            <div style={st.label}>欲しいものリスト</div>
+            <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 追加</button>
+          </div>
+          {showForm && (
+            <div style={{ ...st.card, border: `1px solid ${C.goldMid}`, marginBottom: 12 }}>
+              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="欲しいもの" style={{ ...st.inp, marginBottom: 8 }} />
+              <input type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="値段（円）" style={{ ...st.inp, marginBottom: 8 }} />
+              <input value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))} placeholder="必要な時間（任意）" style={{ ...st.inp, marginBottom: 10 }} />
+              <button onClick={saveWish} style={st.btn()}>保存</button>
+            </div>
+          )}
+          {(data.wishlist || []).length === 0 && <div style={{ fontSize: 12, color: C.text3 }}>まだ追加されていません</div>}
+          {(data.wishlist || []).map(w => {
+            const future = Math.round(w.price * Math.pow(1.07, 10));
+            return (
+              <div key={w.id} style={{ ...st.card, marginBottom: 10 }}>
+                <div style={st.between}>
+                  <div style={{ fontSize: 14, color: C.navy }}>{w.name}</div>
+                  <button onClick={() => upd(d => { d.wishlist = d.wishlist.filter(x => x.id !== w.id); })} style={{ background: 'none', border: 'none', color: C.text3, cursor: 'pointer', fontSize: 16 }}>×</button>
+                </div>
+                <div style={{ fontSize: 20, color: C.gold, margin: '6px 0' }}>{fmtYen(w.price)}</div>
+                {w.time && <div style={{ fontSize: 11, color: C.text3 }}>必要時間: {w.time}</div>}
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 11, color: C.text3 }}>代わりに投資したら10年後</div>
+                  <div style={{ fontSize: 16, color: C.red }}>{fmtYen(future)}</div>
+                  <div style={{ fontSize: 10, color: C.text3, marginTop: 2 }}>投資機会コスト</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ── RESIST ──
+    function ResistTab({ data, upd }) {
+      const [showForm, setShowForm] = useState(false);
+      const [form, setForm] = useState({ name: '', price: '' });
+
+      function saveResist() {
+        const price = parseInt(form.price);
+        if (!form.name || !price) return;
+        upd(d => {
+          if (!d.resist) d.resist = { items: [], log: {} };
+          d.resist.items = [...(d.resist.items || []), { id: Date.now(), name: form.name, price }];
+        });
+        setForm({ name: '', price: '' });
+        setShowForm(false);
+      }
+
+      const items = data.resist?.items || [];
+      const log = data.resist?.log || {};
+      const td = today();
+      let totalSaved = 0;
+      Object.values(log).forEach(dayLog => {
+        Object.entries(dayLog).forEach(([id, saved]) => {
+          if (saved) totalSaved += (items.find(i => i.id == id) || { price: 0 }).price;
+        });
+      });
+      const future10 = Math.round(totalSaved * Math.pow(1.07, 10));
+
+      return (
+        <div>
+          <div style={{ ...st.between, marginBottom: 12 }}>
+            <div style={st.label}>我慢リスト</div>
+            <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 追加</button>
+          </div>
+          <div style={{ ...st.card, background: C.goldLight, border: `1px solid ${C.goldMid}`, marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: C.text3 }}>累計節約額</div>
+            <div style={{ fontSize: 24, color: C.gold }}>{fmtYen(totalSaved)}</div>
+            <div style={{ fontSize: 11, color: C.text3, marginTop: 4 }}>10年投資したら → <span style={{ color: C.green }}>{fmtYen(future10)}</span></div>
+          </div>
+          {showForm && (
+            <div style={{ ...st.card, border: `1px solid ${C.goldMid}`, marginBottom: 12 }}>
+              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="浪費アイテム（例: コンビニ夜ご飯）" style={{ ...st.inp, marginBottom: 8 }} />
+              <input type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="1回あたりの金額（円）" style={{ ...st.inp, marginBottom: 10 }} />
+              <button onClick={saveResist} style={st.btn()}>保存</button>
+            </div>
+          )}
+          {items.length === 0 && <div style={{ fontSize: 12, color: C.text3 }}>浪費アイテムを登録してください</div>}
+          {items.map(item => {
+            const todayDone = log[td] && log[td][item.id];
+            return (
+              <div key={item.id} style={{ ...st.card, marginBottom: 8 }}>
+                <div style={st.between}>
+                  <div>
+                    <div style={{ fontSize: 13, color: C.navy }}>{item.name}</div>
+                    <div style={{ fontSize: 12, color: C.gold }}>{fmtYen(item.price)} / 回</div>
+                  </div>
+                  <button onClick={() => upd(d => { d.resist.items = d.resist.items.filter(i => i.id !== item.id); })} style={{ background: 'none', border: 'none', color: C.text3, cursor: 'pointer', fontSize: 16 }}>×</button>
+                </div>
+                <button onClick={() => upd(d => {
+                  if (!d.resist.log) d.resist.log = {};
+                  if (!d.resist.log[td]) d.resist.log[td] = {};
+                  d.resist.log[td][item.id] = !d.resist.log[td][item.id];
+                })} style={{ width: '100%', marginTop: 10, padding: 8, background: todayDone ? C.green : 'none', border: `1px solid ${todayDone ? C.green : C.border}`, borderRadius: 3, color: todayDone ? '#fff' : C.text2, fontSize: 12, cursor: 'pointer' }}>
+                  {todayDone ? '✓ 今日も我慢した' : '今日我慢した'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    // ── DIARY ──
     function DiaryTab({ data, upd }) {
-      const [mode, setMode] = useState("list");
-      const [entry, setEntry] = useState({ date: today(), mood: "3", text: "" });
+      const [mode, setMode] = useState('list');
+      const [entry, setEntry] = useState({ date: today(), mood: '3', text: '', sleep: '' });
       const [viewing, setViewing] = useState(null);
-      const MOODS = ["😞", "😕", "😐", "🙂", "😊"];
 
       function saveEntry() {
         if (!entry.text.trim()) return;
         upd(d => {
-          const existing = (d.diary || []).findIndex(e => e.date === entry.date);
-          if (existing >= 0) d.diary[existing] = { ...entry, id: d.diary[existing].id };
+          const idx = (d.diary || []).findIndex(e => e.date === entry.date);
+          if (idx >= 0) d.diary[idx] = { ...entry, id: d.diary[idx].id };
           else d.diary = [{ ...entry, id: Date.now() }, ...(d.diary || [])];
-          return d;
         });
-        setMode("list");
+        setMode('list');
       }
 
-      if (mode === "write") {
+      if (mode === 'write') {
         return (
           <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={s.label}>日記を書く</div>
-              <button onClick={() => setMode("list")} style={{ background: "none", border: "none", color: TEXT3, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>← 戻る</button>
+            <div style={{ ...st.between, marginBottom: 14 }}>
+              <div style={st.label}>日記を書く</div>
+              <button onClick={() => setMode('list')} style={{ background: 'none', border: 'none', color: C.text3, cursor: 'pointer', fontSize: 12 }}>← 戻る</button>
             </div>
-            <input type="date" value={entry.date} onChange={e => setEntry(v => ({ ...v, date: e.target.value }))} style={{ ...s.input, marginBottom: 10 }} />
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: TEXT3, marginBottom: 6 }}>今日の気分</div>
-              <div style={{ display: "flex", gap: 12 }}>
+            <input type="date" value={entry.date} onChange={e => setEntry(v => ({ ...v, date: e.target.value }))} style={{ ...st.inp, marginBottom: 8 }} />
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: C.text3, marginBottom: 6 }}>気分</div>
+              <div style={{ display: 'flex', gap: 8 }}>
                 {MOODS.map((m, i) => (
-                  <button key={i} onClick={() => setEntry(v => ({ ...v, mood: String(i) }))} style={{ fontSize: 22, background: entry.mood === String(i) ? `${GOLD}20` : "none", border: `1px solid ${entry.mood === String(i) ? GOLD : BORDER}`, borderRadius: 4, padding: "6px 10px", cursor: "pointer" }}>{m}</button>
+                  <button key={i} onClick={() => setEntry(v => ({ ...v, mood: String(i) }))} style={{ fontSize: 20, background: entry.mood == i ? C.goldLight : 'none', border: `1px solid ${entry.mood == i ? C.gold : C.border}`, borderRadius: 4, padding: '5px 8px', cursor: 'pointer' }}>{m}</button>
                 ))}
               </div>
             </div>
-            <textarea value={entry.text} onChange={e => setEntry(v => ({ ...v, text: e.target.value }))} placeholder="今日のこと..." rows={8} style={{ ...s.input, resize: "vertical", marginBottom: 12 }} />
-            <button onClick={saveEntry} style={s.btn()}>保存</button>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: C.text3, marginBottom: 4 }}>睡眠時間</div>
+              <input value={entry.sleep} onChange={e => setEntry(v => ({ ...v, sleep: e.target.value }))} placeholder="例: 23:30 → 7:00" style={st.inp} />
+            </div>
+            <textarea value={entry.text} onChange={e => setEntry(v => ({ ...v, text: e.target.value }))} placeholder="今日のこと..." rows={8} style={{ ...st.inp, resize: 'vertical', marginBottom: 10 }} />
+            <button onClick={saveEntry} style={st.btn()}>保存</button>
           </div>
         );
       }
@@ -417,14 +800,15 @@
         const e = (data.diary || []).find(x => x.id === viewing);
         return (
           <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={s.label}>{e?.date}</div>
-              <button onClick={() => setViewing(null)} style={{ background: "none", border: "none", color: TEXT3, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>← 戻る</button>
+            <div style={{ ...st.between, marginBottom: 14 }}>
+              <div style={st.label}>{e?.date}</div>
+              <button onClick={() => setViewing(null)} style={{ background: 'none', border: 'none', color: C.text3, cursor: 'pointer', fontSize: 12 }}>← 戻る</button>
             </div>
             {e && (
-              <div style={s.card}>
-                <div style={{ fontSize: 22, marginBottom: 10 }}>{MOODS[parseInt(e.mood)] || "😐"}</div>
-                <div style={{ fontSize: 14, lineHeight: 1.7, color: TEXT, whiteSpace: "pre-wrap" }}>{e.text}</div>
+              <div style={st.card}>
+                <div style={{ fontSize: 22, marginBottom: 8 }}>{MOODS[parseInt(e.mood)] || '😐'}</div>
+                {e.sleep && <div style={{ fontSize: 11, color: C.text3, marginBottom: 8 }}>睡眠: {e.sleep}</div>}
+                <div style={{ fontSize: 13, lineHeight: 1.8, color: C.text, whiteSpace: 'pre-wrap' }}>{e.text}</div>
               </div>
             )}
           </div>
@@ -433,261 +817,43 @@
 
       return (
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <div style={s.label}>日記</div>
-            <button onClick={() => { setEntry({ date: today(), mood: "3", text: "" }); setMode("write"); }} style={s.btn()}>+ 書く</button>
+          <div style={{ ...st.between, marginBottom: 12 }}>
+            <div style={st.label}>日記</div>
+            <button onClick={() => { setEntry({ date: today(), mood: '3', text: '', sleep: '' }); setMode('write'); }} style={st.btn()}>+ 書く</button>
           </div>
-          {(data.diary || []).length === 0 && <div style={{ fontSize: 13, color: TEXT3, padding: "10px 0" }}>まだ日記がありません</div>}
+          {(data.diary || []).length === 0 && <div style={{ fontSize: 12, color: C.text3 }}>まだ日記がありません</div>}
           {(data.diary || []).map(e => (
-            <div key={e.id} onClick={() => setViewing(e.id)} style={{ ...s.card, cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ fontSize: 20 }}>{MOODS[parseInt(e.mood)] || "😐"}</div>
+            <div key={e.id} onClick={() => setViewing(e.id)} style={{ ...st.card, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ fontSize: 20 }}>{MOODS[parseInt(e.mood)] || '😐'}</div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, color: TEXT3, marginBottom: 3 }}>{e.date}</div>
-                <div style={{ fontSize: 13, color: TEXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.text}</div>
+                <div style={{ fontSize: 11, color: C.text3 }}>{e.date}{e.sleep ? ' | ' + e.sleep : ''}</div>
+                <div style={{ fontSize: 13, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.text}</div>
               </div>
-              <div style={{ fontSize: 16, color: TEXT3 }}>›</div>
+              <div style={{ color: C.text3 }}>›</div>
             </div>
           ))}
         </div>
       );
     }
 
-    function FinanceTab({ data, upd }) {
-      const [form, setForm] = useState({ date: today(), type: "expense", amount: "", category: "", note: "" });
-      const [show, setShow] = useState(false);
-      const [viewMonth, setViewMonth] = useState(today().slice(0, 7));
-
-      function addRecord() {
-        if (!form.amount || isNaN(form.amount)) return;
-        upd(d => { d.finance.records = [{ id: Date.now(), ...form, amount: parseInt(form.amount) }, ...(d.finance.records || [])]; return d; });
-        setForm({ date: today(), type: "expense", amount: "", category: "", note: "" });
-        setShow(false);
-      }
-
-      const monthRecords = (data.finance?.records || []).filter(r => r.date?.startsWith(viewMonth));
-      const income = monthRecords.filter(r => r.type === "income").reduce((s, r) => s + r.amount, 0);
-      const expense = monthRecords.filter(r => r.type === "expense").reduce((s, r) => s + r.amount, 0);
-      const balance = income - expense;
-
+    // ── SHARED COMPONENTS ──
+    function CheckCircle({ done, onClick, color, size = 18 }) {
       return (
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <div style={s.label}>収支管理</div>
-            <button onClick={() => setShow(!show)} style={s.btn()}>+ 追加</button>
-          </div>
-          <input type="month" value={viewMonth} onChange={e => setViewMonth(e.target.value)} style={{ ...s.input, marginBottom: 14 }} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
-            {[
-              { label: "収入", val: income, color: "#6E9A6E" },
-              { label: "支出", val: expense, color: "#C96E6E" },
-              { label: "収支", val: balance, color: balance >= 0 ? GOLD : "#C96E6E" },
-            ].map(x => (
-              <div key={x.label} style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 4, padding: "12px 10px", textAlign: "center" }}>
-                <div style={{ fontSize: 10, color: TEXT3, marginBottom: 4 }}>{x.label}</div>
-                <div style={{ fontSize: 14, color: x.color }}>{(x.val / 10000).toFixed(1)}<span style={{ fontSize: 10 }}>万</span></div>
-              </div>
-            ))}
-          </div>
-          {show && (
-            <div style={{ ...s.card, border: `1px solid ${GOLD}40`, marginBottom: 14 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={s.input} />
-                <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={s.input}>
-                  <option value="income">収入</option>
-                  <option value="expense">支出</option>
-                </select>
-              </div>
-              <input value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="金額（円）" type="number" style={{ ...s.input, marginBottom: 8 }} />
-              <input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="カテゴリ（食費・副業など）" style={{ ...s.input, marginBottom: 8 }} />
-              <input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="メモ" style={{ ...s.input, marginBottom: 10 }} />
-              <button onClick={addRecord} style={s.btn()}>保存</button>
-            </div>
-          )}
-          {monthRecords.map(r => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", marginBottom: 7, background: SURFACE, border: `1px solid ${BORDER}`, borderLeft: `3px solid ${r.type === "income" ? "#6E9A6E" : "#C96E6E"}`, borderRadius: 4 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, color: TEXT }}>{r.category || (r.type === "income" ? "収入" : "支出")} {r.note && <span style={{ color: TEXT3, fontSize: 11 }}>— {r.note}</span>}</div>
-                <div style={{ fontSize: 10, color: TEXT3, marginTop: 2 }}>{r.date}</div>
-              </div>
-              <div style={{ fontSize: 14, color: r.type === "income" ? "#6E9A6E" : "#C96E6E" }}>{r.type === "income" ? "+" : "-"}{r.amount.toLocaleString()}</div>
-              <button onClick={() => upd(d => { d.finance.records = d.finance.records.filter(x => x.id !== r.id); return d; })} style={{ background: "none", border: "none", color: TEXT3, cursor: "pointer", fontSize: 16, padding: 0 }}>×</button>
-            </div>
-          ))}
-          {monthRecords.length === 0 && <div style={{ fontSize: 13, color: TEXT3, padding: "10px 0" }}>この月の記録なし</div>}
+        <div onClick={onClick} style={{ width: size, height: size, borderRadius: '50%', border: `1.5px solid ${done ? color : C.border}`, background: done ? color : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, fontSize: size * 0.6, color: '#fff' }}>
+          {done ? '✓' : ''}
         </div>
       );
     }
 
-    function SleepTab({ data, upd }) {
-      const [form, setForm] = useState({ date: today(), bedtime: "", wake: "", quality: "3", note: "" });
-      const [show, setShow] = useState(false);
-      const QUALITY = ["", "最悪", "悪い", "普通", "良い", "最高"];
-      const QCOLOR = ["", "#C96E6E", "#C99A6E", TEXT2, "#6E9A6E", GOLD];
-
-      function addSleep() {
-        if (!form.bedtime || !form.wake) return;
-        const [bh, bm] = form.bedtime.split(":").map(Number);
-        const [wh, wm] = form.wake.split(":").map(Number);
-        let dur = (wh * 60 + wm) - (bh * 60 + bm);
-        if (dur < 0) dur += 24 * 60;
-        upd(d => { d.sleep = [{ id: Date.now(), ...form, duration: dur }, ...(d.sleep || [])]; return d; });
-        setForm({ date: today(), bedtime: "", wake: "", quality: "3", note: "" });
-        setShow(false);
-      }
-
-      const records = (data.sleep || []).slice(0, 14);
-      const avgDur = records.length > 0 ? records.reduce((s, r) => s + (r.duration || 0), 0) / records.length : 0;
-
+    function ProgressBar({ value, color }) {
       return (
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <div style={s.label}>睡眠記録</div>
-            <button onClick={() => setShow(!show)} style={s.btn()}>+ 記録</button>
-          </div>
-          {records.length > 0 && (
-            <div style={{ ...s.card, marginBottom: 14, textAlign: "center" }}>
-              <div style={{ fontSize: 10, color: TEXT3, marginBottom: 4 }}>平均睡眠時間（直近{records.length}日）</div>
-              <div style={{ fontSize: 24, color: GOLD }}>{Math.floor(avgDur / 60)}<span style={{ fontSize: 14, color: TEXT2 }}>h</span>{Math.round(avgDur % 60)}<span style={{ fontSize: 14, color: TEXT2 }}>m</span></div>
-            </div>
-          )}
-          {show && (
-            <div style={{ ...s.card, border: `1px solid ${GOLD}40`, marginBottom: 14 }}>
-              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={{ ...s.input, marginBottom: 8 }} />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: TEXT3, marginBottom: 4 }}>就寝時刻</div>
-                  <input type="time" value={form.bedtime} onChange={e => setForm(f => ({ ...f, bedtime: e.target.value }))} style={s.input} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: TEXT3, marginBottom: 4 }}>起床時刻</div>
-                  <input type="time" value={form.wake} onChange={e => setForm(f => ({ ...f, wake: e.target.value }))} style={s.input} />
-                </div>
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 10, color: TEXT3, marginBottom: 6 }}>睡眠の質</div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {[1,2,3,4,5].map(q => (
-                    <button key={q} onClick={() => setForm(f => ({ ...f, quality: String(q) }))} style={{ flex: 1, padding: "6px 0", background: form.quality === String(q) ? `${GOLD}20` : SURFACE2, border: `1px solid ${form.quality === String(q) ? GOLD : BORDER}`, borderRadius: 3, color: form.quality === String(q) ? GOLD : TEXT3, fontSize: 12, cursor: "pointer" }}>{q}</button>
-                  ))}
-                </div>
-              </div>
-              <input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} placeholder="メモ" style={{ ...s.input, marginBottom: 10 }} />
-              <button onClick={addSleep} style={s.btn()}>保存</button>
-            </div>
-          )}
-          {records.map(r => {
-            const h = Math.floor((r.duration || 0) / 60);
-            const m = (r.duration || 0) % 60;
-            return (
-              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", marginBottom: 7, background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 4 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, color: TEXT3, marginBottom: 2 }}>{r.date}</div>
-                  <div style={{ fontSize: 13, color: TEXT }}>{r.bedtime} → {r.wake} <span style={{ color: TEXT2 }}>（{h}h{m}m）</span></div>
-                  {r.note && <div style={{ fontSize: 11, color: TEXT3, marginTop: 2 }}>{r.note}</div>}
-                </div>
-                <div style={{ fontSize: 12, color: QCOLOR[parseInt(r.quality)] || TEXT2 }}>{QUALITY[parseInt(r.quality)] || ""}</div>
-                <button onClick={() => upd(d => { d.sleep = d.sleep.filter(x => x.id !== r.id); return d; })} style={{ background: "none", border: "none", color: TEXT3, cursor: "pointer", fontSize: 16, padding: 0 }}>×</button>
-              </div>
-            );
-          })}
-          {records.length === 0 && <div style={{ fontSize: 13, color: TEXT3, padding: "10px 0" }}>まだ記録がありません</div>}
+        <div style={{ height: 6, background: C.creamDark, borderRadius: 3, overflow: 'hidden', margin: '6px 0' }}>
+          <div style={{ width: value + '%', height: '100%', background: color, borderRadius: 3, transition: 'width 0.3s' }} />
         </div>
       );
     }
 
-    function FireTab({ data, upd }) {
-      const [editA, setEditA] = useState(false);
-      const [editM, setEditM] = useState(false);
-      const [aInput, setAInput] = useState("");
-      const [mInput, setMInput] = useState("");
-      const { currentAssets, monthlyInvestment, targetAge, birthYear } = data.fire;
-      const currentYear = new Date().getFullYear();
-      const yearsLeft = Math.max(0, birthYear + targetAge - currentYear);
-      const monthlyRate = 0.07 / 12;
-      const months = yearsLeft * 12;
-      let projected = currentAssets * 10000;
-      for (let i = 0; i < months; i++) projected = projected * (1 + monthlyRate) + monthlyInvestment;
-      projected = Math.round(projected / 10000);
-      const target = 10500;
-      const progress = Math.min(100, (currentAssets / target) * 100);
-      const r = 64;
-      const circ = 2 * Math.PI * r;
-
-      return (
-        <div>
-          <div style={s.label}>FIRE Progress</div>
-          <div style={{ ...s.card, textAlign: "center", marginBottom: 12 }}>
-            <svg width="160" height="160" viewBox="0 0 160 160" style={{ display: "block", margin: "0 auto 16px" }}>
-              <circle cx="80" cy="80" r={r} fill="none" stroke={BORDER} strokeWidth="6" />
-              <circle cx="80" cy="80" r={r} fill="none" stroke={GOLD} strokeWidth="6"
-                strokeDasharray={`${circ * progress / 100} ${circ}`}
-                strokeLinecap="round" transform="rotate(-90 80 80)" />
-              <text x="80" y="74" textAnchor="middle" fill={TEXT} fontSize="20" fontFamily="Georgia,serif">{progress.toFixed(1)}%</text>
-              <text x="80" y="92" textAnchor="middle" fill={TEXT3} fontSize="10" fontFamily="Georgia,serif">達成率</text>
-            </svg>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 10, color: TEXT3, marginBottom: 3 }}>現在の資産</div>
-                {editA ? (
-                  <input value={aInput} onChange={e => setAInput(e.target.value)} autoFocus
-                    onBlur={() => { const v = parseFloat(aInput); if (!isNaN(v)) upd(d => { d.fire.currentAssets = v; return d; }); setEditA(false); }}
-                    onKeyDown={e => { if (e.key === "Enter") { const v = parseFloat(aInput); if (!isNaN(v)) upd(d => { d.fire.currentAssets = v; return d; }); setEditA(false); } }}
-                    style={{ ...s.input, textAlign: "center", fontSize: 16 }} placeholder="万円" />
-                ) : (
-                  <div onClick={() => { setAInput(String(currentAssets)); setEditA(true); }} style={{ fontSize: 20, color: GOLD, cursor: "pointer" }}>
-                    {currentAssets.toLocaleString()}<span style={{ fontSize: 11, color: TEXT3 }}>万</span>
-                  </div>
-                )}
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: TEXT3, marginBottom: 3 }}>目標</div>
-                <div style={{ fontSize: 20, color: TEXT }}>10,500<span style={{ fontSize: 11, color: TEXT3 }}>万</span></div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: TEXT3, marginBottom: 3 }}>月次投資</div>
-                {editM ? (
-                  <input value={mInput} onChange={e => setMInput(e.target.value)} autoFocus
-                    onBlur={() => { const v = parseInt(mInput); if (!isNaN(v)) upd(d => { d.fire.monthlyInvestment = v; return d; }); setEditM(false); }}
-                    onKeyDown={e => { if (e.key === "Enter") { const v = parseInt(mInput); if (!isNaN(v)) upd(d => { d.fire.monthlyInvestment = v; return d; }); setEditM(false); } }}
-                    style={{ ...s.input, textAlign: "center", fontSize: 14 }} placeholder="円" />
-                ) : (
-                  <div onClick={() => { setMInput(String(monthlyInvestment)); setEditM(true); }} style={{ fontSize: 16, color: TEXT, cursor: "pointer" }}>
-                    {monthlyInvestment.toLocaleString()}<span style={{ fontSize: 10, color: TEXT3 }}>円</span>
-                  </div>
-                )}
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: TEXT3, marginBottom: 3 }}>30歳まで</div>
-                <div style={{ fontSize: 20, color: TEXT }}>{yearsLeft}<span style={{ fontSize: 11, color: TEXT3 }}>年</span></div>
-              </div>
-            </div>
-          </div>
-          <div style={{ ...s.card, border: `1px solid ${GOLD}30` }}>
-            <div style={{ fontSize: 10, color: TEXT3, marginBottom: 6 }}>30歳時点の予測資産（年利7%）</div>
-            <div style={{ fontSize: 26, color: GOLD }}>{projected.toLocaleString()}<span style={{ fontSize: 13, color: TEXT2 }}>万円</span></div>
-            <div style={{ fontSize: 11, color: TEXT3, marginTop: 6 }}>事業収益・副業収益は含まず</div>
-          </div>
-          <div style={s.card}>
-            <div style={{ fontSize: 10, color: TEXT3, marginBottom: 10 }}>FIRE 3本柱</div>
-            {[
-              { l: "インデックス投資", n: "S&P500中心・月65,000円", c: GOLD },
-              { l: "家業継承", n: "薬局×不動産・30歳継承", c: "#8B9B7B" },
-              { l: "副業・新規事業", n: "サプリショップ×SNS", c: "#6E8BC9" },
-            ].map((x, i) => (
-              <div key={i} style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10 }}>
-                <div style={{ width: 3, height: 34, background: x.c, borderRadius: 2, flexShrink: 0 }} />
-                <div>
-                  <div style={{ fontSize: 13, color: TEXT }}>{x.l}</div>
-                  <div style={{ fontSize: 11, color: TEXT3 }}>{x.n}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
