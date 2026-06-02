@@ -35,19 +35,39 @@ const LIGHT = '#F9F6F1';
 const RED = '#B84040';
 const GREEN = '#3A7A5A';
 
-const APP_KEY = 'ameno_os_v4';
+const GENRE_COLORS = ['#B8955A','#5B3FA6','#3A7A5A','#1B2A4A','#B84040','#C07030','#3A6080','#7A3A6A','#4A7A3A','#8A7030'];
+
+const APP_KEY = 'ameno_os_v5';
 const DEFAULT = {
   pin: null,
   schedule: [], todos: [], goals: [],
-  finance: { income: 0, investment: 0, defense: 0, records: [], investTotal: 0, defenseTotal: 0 },
+  finance: { investment: 0, records: [], investTotal: 0, defenseTotal: 0 },
   resist: { items: [], log: {} },
   diary: [], weight: [], birthdays: [],
-  genres: ['国家試験勉強', 'ウエイト', '英語学習', 'ストレッチ', '副業学習', 'ゴルフ', '読書'],
+  genres: [
+    { name: '国家試験勉強', color: '#5B3FA6' },
+    { name: 'ウエイト', color: '#3A7A5A' },
+    { name: '英語学習', color: '#1B2A4A' },
+    { name: 'ストレッチ', color: '#C07030' },
+    { name: '副業学習', color: '#B84040' },
+    { name: 'ゴルフ', color: '#3A6080' },
+    { name: '読書', color: '#7A3A6A' },
+  ],
   genreGoals: {},
 };
 
 function loadData() {
-  try { const r = localStorage.getItem(APP_KEY); if (r) return { ...DEFAULT, ...JSON.parse(r) }; } catch {}
+  try {
+    const r = localStorage.getItem(APP_KEY);
+    if (r) {
+      const parsed = JSON.parse(r);
+      // migrate old genres (string array) to new format
+      if (parsed.genres && parsed.genres.length > 0 && typeof parsed.genres[0] === 'string') {
+        parsed.genres = parsed.genres.map((name, i) => ({ name, color: GENRE_COLORS[i % GENRE_COLORS.length] }));
+      }
+      return { ...DEFAULT, ...parsed };
+    }
+  } catch {}
   return JSON.parse(JSON.stringify(DEFAULT));
 }
 function saveData(d) { try { localStorage.setItem(APP_KEY, JSON.stringify(d)); } catch {} }
@@ -56,6 +76,10 @@ function todayLabel() { return new Date().toLocaleDateString('ja-JP', { month: '
 function pad(n) { return String(n).padStart(2, '0'); }
 function fmtYen(n) { return '¥' + Math.round(n).toLocaleString(); }
 function fmtMan(n) { return (n / 10000).toFixed(1) + '万'; }
+function getGenreColor(genres, name) {
+  const g = genres.find(x => x.name === name);
+  return g ? g.color : GOLD;
+}
 
 const st = {
   inp: { width: '100%', background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 4, padding: '8px 11px', color: '#111', fontSize: 13, outline: 'none', boxSizing: 'border-box' },
@@ -80,6 +104,33 @@ const MOODS = ['😞','😕','😐','🙂','😊'];
 const PCOLOR = { urgent: '#B84040', high: '#C07030', medium: '#8A7030', low: '#3A6080' };
 const PLABEL = { urgent: '緊急', high: '高', medium: '中', low: '低' };
 
+// ── CONFIRM DIALOG ──
+function ConfirmDialog({ message, onOk, onCancel }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
+      <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: '80%', maxWidth: 320 }}>
+        <div style={{ fontSize: 14, color: '#111', marginBottom: 20, textAlign: 'center', lineHeight: 1.6 }}>{message}</div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: 10, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 4, color: '#555', cursor: 'pointer', fontSize: 13 }}>キャンセル</button>
+          <button onClick={onOk} style={{ flex: 1, padding: 10, background: RED, border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 13 }}>削除する</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useConfirm() {
+  const [state, setState] = useState(null);
+  function confirm(message) {
+    return new Promise(resolve => { setState({ message, resolve }); });
+  }
+  function Dialog() {
+    if (!state) return null;
+    return <ConfirmDialog message={state.message} onOk={() => { state.resolve(true); setState(null); }} onCancel={() => { state.resolve(false); setState(null); }} />;
+  }
+  return { confirm, Dialog };
+}
+
 function App() {
   const [data, setData] = useState(loadData);
   const [tab, setTab] = useState('home');
@@ -90,12 +141,7 @@ function App() {
   const [setupPin, setSetupPin] = useState('');
 
   function upd(fn) {
-    setData(d => {
-      const n = JSON.parse(JSON.stringify(d));
-      fn(n);
-      saveData(n);
-      return n;
-    });
+    setData(d => { const n = JSON.parse(JSON.stringify(d)); fn(n); saveData(n); return n; });
   }
 
   if (!data.pin) {
@@ -130,10 +176,7 @@ function App() {
                 setPinInput(v);
                 if (v.length === 4) {
                   if (v === data.pin) { setUnlocked(true); setPinInput(''); setPinError(0); }
-                  else {
-                    const e = pinError + 1; setPinError(e); setPinInput('');
-                    if (e >= 3) { setLockUntil(Date.now() + 30000); setPinError(0); }
-                  }
+                  else { const e = pinError + 1; setPinError(e); setPinInput(''); if (e >= 3) { setLockUntil(Date.now() + 30000); setPinError(0); } }
                 }
               }} maxLen={4} />
             </>
@@ -182,10 +225,10 @@ function PinPad({ value, onChange, maxLen }) {
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 64px)', gap: 10, justifyContent: 'center' }}>
       {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((n, i) => (
         <button key={i} onClick={() => {
-          if (n === '⌫') { onChange(value.slice(0, -1)); return; }
+          if (n === '⌫') { onChange(value.slice(0,-1)); return; }
           if (n === '') return;
           if (value.length < maxLen) onChange(value + n);
-        }} style={{ height: 54, background: n === '' ? 'none' : 'rgba(255,255,255,0.1)', border: `1px solid ${n === '' ? 'transparent' : 'rgba(255,255,255,0.2)'}`, borderRadius: 4, color: '#F5EDD8', fontSize: 18, cursor: n === '' ? 'default' : 'pointer' }}>{n}</button>
+        }} style={{ height: 54, background: n===''?'none':'rgba(255,255,255,0.1)', border: `1px solid ${n===''?'transparent':'rgba(255,255,255,0.2)'}`, borderRadius: 4, color: '#F5EDD8', fontSize: 18, cursor: n===''?'default':'pointer' }}>{n}</button>
       ))}
     </div>
   );
@@ -200,35 +243,128 @@ function LockTimer({ lockUntil }) {
   return <div style={{ color: '#E07070', fontSize: 13 }}>{rem}秒後に再試行できます</div>;
 }
 
+// ── RESERVE MODAL ──
+function ReserveModal({ date, h, m, genres, existing, onSave, onClose, upd }) {
+  const initGenre = existing ? existing.genre : (genres[0]?.name || '');
+  const [title, setTitle] = useState(existing?.title || '');
+  const [genre, setGenre] = useState(initGenre);
+  const defEndH = (m+10)>=60 ? h+1 : h;
+  const defEndM = (m+10)>=60 ? (m+10)-60 : m+10;
+  const [end, setEnd] = useState(existing?.end || `${pad(defEndH)}:${pad(defEndM)}`);
+  const [newGenre, setNewGenre] = useState('');
+  const [newGenreColor, setNewGenreColor] = useState(GENRE_COLORS[0]);
+  const [showAdd, setShowAdd] = useState(false);
+
+  function addGenre() {
+    if (!newGenre.trim()) return;
+    upd(d => { if (!d.genres.find(g => g.name === newGenre.trim())) d.genres = [...d.genres, { name: newGenre.trim(), color: newGenreColor }]; });
+    setGenre(newGenre.trim());
+    setNewGenre('');
+    setShowAdd(false);
+  }
+
+  const genreColor = getGenreColor(genres, genre);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 200 }} onClick={onClose}>
+      <div style={{ background: '#fff', borderRadius: '12px 12px 0 0', padding: 24, width: '100%', maxWidth: 480, paddingBottom: 40, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14, color: '#111' }}>{pad(h)}:{pad(m)} に予約 {existing ? '(編集)' : ''}</div>
+        <div style={{ fontSize: 10, color: '#888', marginBottom: 6 }}>ジャンル</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          {genres.map(g => (
+            <button key={g.name} onClick={() => setGenre(g.name)} style={{ padding: '5px 12px', background: genre===g.name?g.color:LIGHT, border: `1px solid ${genre===g.name?g.color:BORDER}`, borderRadius: 20, color: genre===g.name?'#fff':'#333', fontSize: 12, cursor: 'pointer' }}>{g.name}</button>
+          ))}
+          <button onClick={() => setShowAdd(!showAdd)} style={{ padding: '5px 12px', background: 'none', border: `1px dashed ${BORDER}`, borderRadius: 20, color: '#888', fontSize: 12, cursor: 'pointer' }}>＋ 追加</button>
+        </div>
+        {showAdd && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+              <input value={newGenre} onChange={e => setNewGenre(e.target.value)} placeholder="新しいジャンル" style={{ ...st.inp, flex: 1 }} />
+              <button onClick={addGenre} style={st.btn()}>追加</button>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {GENRE_COLORS.map(c => (
+                <div key={c} onClick={() => setNewGenreColor(c)} style={{ width: 24, height: 24, borderRadius: '50%', background: c, border: `2px solid ${newGenreColor===c?'#111':BORDER}`, cursor: 'pointer' }} />
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>タイトル（任意）</div>
+        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="例：読書、筋トレなど" style={{ ...st.inp, marginBottom: 10 }} />
+        <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>終了時間</div>
+        <input type="time" value={end} onChange={e => setEnd(e.target.value)} style={{ ...st.inp, marginBottom: 16 }} />
+        <button onClick={() => onSave({ title: title||genre, genre, start: `${pad(h)}:${pad(m)}`, end, color: genreColor })} style={{ ...st.btn(), width: '100%' }}>{existing ? '更新する' : '予約する'}</button>
+      </div>
+    </div>
+  );
+}
+
 // ── HOME ──
 function HomeTab({ data, upd }) {
-  const td = today();
+  const [selDate, setSelDate] = useState(today());
   const [modal, setModal] = useState(null);
+  const [editModal, setEditModal] = useState(null);
+  const { confirm, Dialog } = useConfirm();
+
   const slots = [];
-  for (let h = 7; h < 23; h++) for (let m = 0; m < 60; m += 10) slots.push({ h, m });
-  const res = (data.schedule||[]).filter(s => s.date === td).sort((a,b) => a.start.localeCompare(b.start));
+  for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 10) slots.push({ h, m });
+  const res = (data.schedule||[]).filter(s => s.date === selDate).sort((a,b) => a.start.localeCompare(b.start));
   const todos = (data.todos||[]).filter(t => !t.done).sort((a,b) => {
     const po = { urgent:0, high:1, medium:2, low:3 };
     return (po[a.priority]||2)-(po[b.priority]||2);
   });
 
   function saveRes(form) {
-    upd(d => { d.schedule = [...d.schedule, { id: Date.now(), date: td, ...form }]; });
+    upd(d => { d.schedule = [...d.schedule, { id: Date.now(), date: selDate, ...form }]; });
     setModal(null);
   }
 
+  function updateRes(id, form) {
+    upd(d => { d.schedule = d.schedule.map(x => x.id === id ? { ...x, ...form } : x); });
+    setEditModal(null);
+  }
+
+  async function deleteRes(id) {
+    const ok = await confirm('この予定を削除しますか？');
+    if (ok) upd(d => { d.schedule = d.schedule.filter(x => x.id !== id); });
+  }
+
+  // Date navigation
+  function addDays(dateStr, n) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+
+  const dt = new Date(selDate + 'T00:00:00');
+  const dow = ['日','月','火','水','木','金','土'][dt.getDay()];
+
   return (
     <div>
-      <div style={st.label}>今日のスケジュール</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 3, marginBottom: 12 }}>
+      <Dialog />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <button onClick={() => setSelDate(d => addDays(d, -1))} style={{ ...st.btn(LIGHT, '#333'), padding: '6px 12px' }}>◀</button>
+        <input type="date" value={selDate} onChange={e => setSelDate(e.target.value)} style={{ ...st.inp, flex: 1, textAlign: 'center' }} />
+        <button onClick={() => setSelDate(d => addDays(d, 1))} style={{ ...st.btn(LIGHT, '#333'), padding: '6px 12px' }}>▶</button>
+      </div>
+      <div style={{ fontSize: 13, color: '#555', marginBottom: 10, textAlign: 'center' }}>
+        {selDate} ({dow})
+        {selDate !== today() && <button onClick={() => setSelDate(today())} style={{ marginLeft: 8, fontSize: 11, background: 'none', border: `1px solid ${BORDER}`, borderRadius: 3, padding: '2px 8px', cursor: 'pointer', color: '#888' }}>今日</button>}
+      </div>
+
+      <div style={st.label}>スケジュール</div>
+      <div style={{ marginBottom: 4, textAlign: 'right' }}>
+        <button onClick={() => setModal({ h: 9, m: 0 })} style={{ ...st.btn(), fontSize: 12, padding: '6px 14px' }}>+ 予約追加</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 2, marginBottom: 12 }}>
         {slots.map(({ h, m }) => {
           const key = `${pad(h)}:${pad(m)}`;
           const item = res.find(s => s.start === key);
           return (
-            <div key={key} onClick={() => !item && setModal({ h, m })}
-              style={{ padding: '5px 2px', borderRadius: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', minHeight: 40, cursor: item ? 'default' : 'pointer', background: item ? '#EAE0FF' : LIGHT, border: `1px solid ${item ? '#9B7FD4' : BORDER}` }}>
-              <span style={{ fontSize: 8, color: '#888' }}>{key}</span>
-              {item && <span style={{ fontSize: 7, fontWeight: 700, color: '#5B3FA6', marginTop: 1, textAlign: 'center', lineHeight: 1.2, wordBreak: 'break-all' }}>{item.genre || item.title}</span>}
+            <div key={key} onClick={() => item ? setEditModal(item) : setModal({ h, m })}
+              style={{ padding: '4px 1px', borderRadius: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', minHeight: 36, cursor: 'pointer', background: item ? (item.color || '#EAE0FF') + '33' : LIGHT, border: `1px solid ${item ? (item.color || '#9B7FD4') : BORDER}` }}>
+              <span style={{ fontSize: 7, color: '#888' }}>{key}</span>
+              {item && <span style={{ fontSize: 7, fontWeight: 700, color: item.color || '#5B3FA6', marginTop: 1, textAlign: 'center', lineHeight: 1.1, wordBreak: 'break-all' }}>{item.genre||item.title}</span>}
             </div>
           );
         })}
@@ -237,13 +373,14 @@ function HomeTab({ data, upd }) {
       {res.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           {res.map(s => (
-            <div key={s.id} style={{ ...st.card, borderLeft: `3px solid ${GOLD}`, padding: '10px 14px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div key={s.id} style={{ ...st.card, borderLeft: `4px solid ${s.color||GOLD}`, padding: '10px 14px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 11, color: '#888' }}>{s.start}{s.end?' — '+s.end:''}</div>
                 <div style={{ fontSize: 13, color: '#111' }}>{s.title}</div>
-                {s.genre && <span style={{ fontSize: 10, background: '#EAE0FF', color: '#5B3FA6', borderRadius: 3, padding: '1px 6px' }}>{s.genre}</span>}
+                {s.genre && <span style={{ fontSize: 10, background: (s.color||GOLD)+'22', color: s.color||GOLD, borderRadius: 3, padding: '1px 6px' }}>{s.genre}</span>}
               </div>
-              <button onClick={() => upd(d => { d.schedule = d.schedule.filter(x => x.id !== s.id); })} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
+              <button onClick={() => setEditModal(s)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 13, padding: '2px 6px' }}>✏️</button>
+              <button onClick={() => deleteRes(s.id)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
             </div>
           ))}
         </div>
@@ -262,60 +399,33 @@ function HomeTab({ data, upd }) {
         );
       })}
 
-      {modal && <ReserveModal date={td} h={modal.h} m={modal.m} genres={data.genres||[]} onSave={saveRes} onClose={() => setModal(null)} upd={upd} />}
+      {modal && <ReserveModal date={selDate} h={modal.h} m={modal.m} genres={data.genres||[]} onSave={saveRes} onClose={() => setModal(null)} upd={upd} />}
+      {editModal && <ReserveModal date={selDate} h={parseInt(editModal.start.split(':')[0])} m={parseInt(editModal.start.split(':')[1])} genres={data.genres||[]} existing={editModal} onSave={(form) => updateRes(editModal.id, form)} onClose={() => setEditModal(null)} upd={upd} />}
     </div>
   );
 }
 
-function ReserveModal({ date, h, m, genres, onSave, onClose, upd }) {
-  const [title, setTitle] = useState('');
-  const [genre, setGenre] = useState(genres[0]||'');
-  const endM = (m+10) >= 60 ? 0 : m+10;
-  const endH = (m+10) >= 60 ? h+1 : h;
-  const [end, setEnd] = useState(`${pad(endH)}:${pad(endM)}`);
-  const [newGenre, setNewGenre] = useState('');
-  const [showAdd, setShowAdd] = useState(false);
-
-  function addGenre() {
-    if (!newGenre.trim()) return;
-    upd(d => { if (!d.genres.includes(newGenre.trim())) d.genres = [...d.genres, newGenre.trim()]; });
-    setGenre(newGenre.trim());
-    setNewGenre('');
-    setShowAdd(false);
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 200 }} onClick={onClose}>
-      <div style={{ background: '#fff', borderRadius: '12px 12px 0 0', padding: 24, width: '100%', maxWidth: 480, paddingBottom: 40 }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14, color: '#111' }}>{pad(h)}:{pad(m)} に予約</div>
-        <div style={{ fontSize: 10, color: '#888', marginBottom: 6 }}>ジャンル</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-          {genres.map(g => (
-            <button key={g} onClick={() => setGenre(g)} style={{ padding: '5px 12px', background: genre===g?GOLD:LIGHT, border: `1px solid ${genre===g?GOLD:BORDER}`, borderRadius: 20, color: genre===g?'#fff':'#333', fontSize: 12, cursor: 'pointer' }}>{g}</button>
-          ))}
-          <button onClick={() => setShowAdd(!showAdd)} style={{ padding: '5px 12px', background: 'none', border: `1px dashed ${BORDER}`, borderRadius: 20, color: '#888', fontSize: 12, cursor: 'pointer' }}>＋ 追加</button>
-        </div>
-        {showAdd && (
-          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-            <input value={newGenre} onChange={e => setNewGenre(e.target.value)} placeholder="新しいジャンル" style={{ ...st.inp, flex: 1 }} />
-            <button onClick={addGenre} style={st.btn()}>追加</button>
-          </div>
-        )}
-        <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>タイトル（任意）</div>
-        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="例：継代、読書など" style={{ ...st.inp, marginBottom: 10 }} />
-        <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>終了時間</div>
-        <input type="time" value={end} onChange={e => setEnd(e.target.value)} style={{ ...st.inp, marginBottom: 16 }} />
-        <button onClick={() => onSave({ title: title||genre, genre, start: `${pad(h)}:${pad(m)}`, end })} style={{ ...st.btn(), width: '100%' }}>予約する</button>
-      </div>
-    </div>
-  );
-}
-
-// ── SCHEDULE ──
+// ── SCHEDULE (Calendar) ──
 function ScheduleTab({ data, upd }) {
+  const [viewYM, setViewYM] = useState(today().slice(0,7));
+  const [selDate, setSelDate] = useState(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [editGoal, setEditGoal] = useState(false);
   const [goalInputs, setGoalInputs] = useState({});
+  const [showGenreEdit, setShowGenreEdit] = useState(false);
+
+  const [year, month] = viewYM.split('-').map(Number);
+  const firstDay = new Date(year, month-1, 1);
+  const lastDay = new Date(year, month, 0);
+  const startDow = firstDay.getDay();
+  const daysInMonth = lastDay.getDate();
+  const weeks = [];
+  let week = Array(startDow).fill(null);
+  for (let d = 1; d <= daysInMonth; d++) {
+    week.push(d);
+    if (week.length === 7) { weeks.push(week); week = []; }
+  }
+  if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week); }
 
   function getWeekDates(offset) {
     const now = new Date();
@@ -329,78 +439,211 @@ function ScheduleTab({ data, upd }) {
       return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
     });
   }
-
   const weekDates = getWeekDates(weekOffset);
   const weekSchedule = (data.schedule||[]).filter(s => weekDates.includes(s.date));
   const genres = data.genres||[];
   const genreGoals = data.genreGoals||{};
-
   const genreTotals = {};
-  genres.forEach(g => { genreTotals[g] = 0; });
+  genres.forEach(g => { genreTotals[g.name] = 0; });
   weekSchedule.forEach(s => { if (s.genre) genreTotals[s.genre] = (genreTotals[s.genre]||0) + 10; });
+  const activeGenres = genres.filter(g => genreTotals[g.name] > 0 || genreGoals[g.name]);
 
-  const activeGenres = genres.filter(g => genreTotals[g] > 0 || genreGoals[g]);
+  const W = 300, H = 120;
+  const maxVal = Math.max(...activeGenres.map(g => Math.max((genreTotals[g.name]||0)/60, genreGoals[g.name]||0)), 1);
 
-  function saveGoals() {
-    upd(d => { d.genreGoals = { ...goalInputs }; });
-    setEditGoal(false);
+  // Pie chart for time distribution
+  const totalMins = Object.values(genreTotals).reduce((s,v) => s+v, 0);
+  let pieAngle = 0;
+  const pieSlices = genres.filter(g => genreTotals[g.name] > 0).map(g => {
+    const pct = genreTotals[g.name] / totalMins;
+    const start = pieAngle;
+    pieAngle += pct * 360;
+    return { name: g.name, color: g.color, pct, start, end: pieAngle };
+  });
+
+  function polarToXY(cx, cy, r, deg) {
+    const rad = (deg - 90) * Math.PI / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  }
+  function pieArc(cx, cy, r, start, end) {
+    const s = polarToXY(cx, cy, r, start);
+    const e = polarToXY(cx, cy, r, end);
+    const large = end - start > 180 ? 1 : 0;
+    return `M ${cx} ${cy} L ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y} Z`;
   }
 
-  // SVG bar chart
-  const chartW = 320;
-  const chartH = 140;
-  const barW = activeGenres.length > 0 ? Math.min(32, (chartW - 40) / (activeGenres.length * 2 + 1)) : 20;
-  const maxVal = Math.max(...activeGenres.map(g => Math.max((genreTotals[g]||0)/60, genreGoals[g]||0)), 1);
+  function saveGoals() { upd(d => { d.genreGoals = { ...goalInputs }; }); setEditGoal(false); }
+
+  async function deleteGenre(name, confirm) {
+    const ok = await confirm(`ジャンル「${name}」を削除しますか？`);
+    if (ok) upd(d => { d.genres = d.genres.filter(g => g.name !== name); });
+  }
+
+  const { confirm: confirmDel, Dialog: DelDialog } = useConfirm();
+
+  const selDateStr = selDate ? `${year}-${pad(month)}-${pad(selDate)}` : null;
+  const selItems = selDateStr ? (data.schedule||[]).filter(s => s.date === selDateStr) : [];
+  const selBdays = selDateStr ? (data.birthdays||[]).filter(b => {
+    const bParts = b.date.split('-');
+    return bParts.length === 2 && bParts[0] === pad(month) && bParts[1] === pad(selDate);
+  }) : [];
 
   return (
     <div>
+      <DelDialog />
+      {/* Month Calendar */}
+      <div style={st.label}>月間カレンダー</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <button onClick={() => { const d = new Date(year, month-2, 1); setViewYM(`${d.getFullYear()}-${pad(d.getMonth()+1)}`); }} style={{ ...st.btn(LIGHT,'#333'), padding: '6px 12px' }}>◀</button>
+        <div style={{ flex: 1, textAlign: 'center', fontSize: 14, fontWeight: 'bold', color: '#111' }}>{year}年{month}月</div>
+        <button onClick={() => { const d = new Date(year, month, 1); setViewYM(`${d.getFullYear()}-${pad(d.getMonth()+1)}`); }} style={{ ...st.btn(LIGHT,'#333'), padding: '6px 12px' }}>▶</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 4 }}>
+        {['日','月','火','水','木','金','土'].map((d,i) => (
+          <div key={d} style={{ textAlign: 'center', fontSize: 10, color: i===0?RED:i===6?'#3A6080':'#888', padding: '4px 0' }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        {weeks.map((week, wi) => (
+          <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 2 }}>
+            {week.map((d, di) => {
+              if (!d) return <div key={di} />;
+              const dateStr = `${year}-${pad(month)}-${pad(d)}`;
+              const hasSched = (data.schedule||[]).some(s => s.date === dateStr);
+              const hasBday = (data.birthdays||[]).some(b => {
+                const bp = b.date.split('-');
+                return bp.length === 2 && bp[0] === pad(month) && bp[1] === pad(d);
+              });
+              const isToday = dateStr === today();
+              const isSelected = selDate === d;
+              return (
+                <div key={di} onClick={() => setSelDate(isSelected ? null : d)}
+                  style={{ textAlign: 'center', padding: '6px 2px', borderRadius: 4, cursor: 'pointer', background: isSelected ? GOLD : isToday ? '#FBF7EE' : '#fff', border: `1px solid ${isSelected ? GOLD : isToday ? GOLD+'60' : BORDER}` }}>
+                  <div style={{ fontSize: 12, color: isSelected ? '#fff' : di===0 ? RED : di===6 ? '#3A6080' : '#111', fontWeight: isToday ? 'bold' : 'normal' }}>{d}</div>
+                  <div style={{ display: 'flex', gap: 2, justifyContent: 'center', marginTop: 2 }}>
+                    {hasSched && <div style={{ width: 5, height: 5, borderRadius: '50%', background: isSelected ? '#fff' : GOLD }} />}
+                    {hasBday && <div style={{ width: 5, height: 5, borderRadius: '50%', background: isSelected ? '#fff' : RED }} />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      {selDate && (
+        <div style={{ ...st.card, border: `1px solid ${GOLD}`, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 'bold', color: '#111', marginBottom: 10 }}>{year}年{month}月{selDate}日の予定</div>
+          {selBdays.length > 0 && selBdays.map(b => (
+            <div key={b.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, padding: '6px 10px', background: '#FFF0F0', borderRadius: 4, border: `1px solid ${RED}30` }}>
+              <span style={{ fontSize: 16 }}>🎂</span>
+              <span style={{ fontSize: 13, color: '#111' }}>{b.name} の誕生日</span>
+            </div>
+          ))}
+          {selItems.length === 0 && selBdays.length === 0 && <div style={{ fontSize: 12, color: '#aaa' }}>予定なし</div>}
+          {selItems.map(s => (
+            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: (s.color||GOLD)+'15', borderRadius: 4, border: `1px solid ${s.color||GOLD}40`, marginBottom: 6 }}>
+              <div style={{ width: 4, height: 32, background: s.color||GOLD, borderRadius: 2 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: '#888' }}>{s.start}{s.end?' — '+s.end:''}</div>
+                <div style={{ fontSize: 13, color: '#111' }}>{s.title}</div>
+                {s.genre && <span style={{ fontSize: 10, color: s.color||GOLD }}>{s.genre}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Genre Management */}
+      <div style={{ ...st.between, marginBottom: 10 }}>
+        <div style={st.label}>ジャンル管理</div>
+        <button onClick={() => setShowGenreEdit(!showGenreEdit)} style={{ ...st.btn(LIGHT,'#333'), padding: '5px 10px', fontSize: 11 }}>{showGenreEdit?'閉じる':'編集'}</button>
+      </div>
+      {showGenreEdit && (
+        <div style={{ ...st.card, marginBottom: 14 }}>
+          {genres.map(g => (
+            <div key={g.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <div style={{ width: 16, height: 16, borderRadius: '50%', background: g.color, flexShrink: 0 }} />
+              <div style={{ flex: 1, fontSize: 13, color: '#111' }}>{g.name}</div>
+              <button onClick={() => deleteGenre(g.name, confirmDel)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 14 }}>×</button>
+            </div>
+          ))}
+          <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 10, marginTop: 6 }}>
+            <AddGenreForm genres={genres} upd={upd} />
+          </div>
+        </div>
+      )}
+
+      {/* Weekly Summary */}
       <div style={st.label}>週間サマリー</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
-        <button onClick={() => setWeekOffset(w => w-1)} style={{ ...st.btn(LIGHT, '#333'), padding: '6px 12px' }}>◀</button>
-        <div style={{ flex: 1, textAlign: 'center', fontSize: 12, color: '#333' }}>
-          {weekDates[0].slice(5).replace('-','/')} 〜 {weekDates[6].slice(5).replace('-','/')}
-        </div>
-        <button onClick={() => setWeekOffset(w => w+1)} style={{ ...st.btn(LIGHT, '#333'), padding: '6px 12px' }}>▶</button>
+        <button onClick={() => setWeekOffset(w => w-1)} style={{ ...st.btn(LIGHT,'#333'), padding: '6px 12px' }}>◀</button>
+        <div style={{ flex: 1, textAlign: 'center', fontSize: 12, color: '#333' }}>{weekDates[0].slice(5).replace('-','/')} 〜 {weekDates[6].slice(5).replace('-','/')}</div>
+        <button onClick={() => setWeekOffset(w => w+1)} style={{ ...st.btn(LIGHT,'#333'), padding: '6px 12px' }}>▶</button>
       </div>
+
+      {totalMins > 0 && (
+        <div style={{ ...st.card, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>時間配分</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <svg width="100" height="100" viewBox="0 0 100 100">
+              {pieSlices.map((s, i) => (
+                <path key={i} d={pieArc(50,50,45,s.start,s.end)} fill={s.color} />
+              ))}
+            </svg>
+            <div style={{ flex: 1 }}>
+              {pieSlices.map(s => (
+                <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: '#333' }}>{s.name}</span>
+                  <span style={{ fontSize: 11, color: '#888', marginLeft: 'auto' }}>{(genreTotals[s.name]/60).toFixed(1)}h ({Math.round(s.pct*100)}%)</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeGenres.length > 0 && (
         <div style={{ ...st.card, marginBottom: 14 }}>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>ジャンル別時間（時間）</div>
-          <svg width="100%" viewBox={`0 0 ${chartW} ${chartH+30}`} style={{ overflow: 'visible' }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>目標vs実績（時間）</div>
+          <svg width="100%" viewBox={`0 0 ${W} ${H+30}`} style={{ overflow: 'visible' }}>
             {activeGenres.map((g, i) => {
-              const x = 30 + i * ((chartW - 40) / activeGenres.length) + 4;
-              const actualH = ((genreTotals[g]||0)/60 / maxVal) * chartH;
-              const goalH = ((genreGoals[g]||0) / maxVal) * chartH;
-              const label = g.length > 4 ? g.slice(0,4) : g;
+              const x = 20 + i * ((W-30)/activeGenres.length) + 2;
+              const bw = Math.min(28, (W-30)/activeGenres.length/2 - 4);
+              const actualH = ((genreTotals[g.name]||0)/60/maxVal)*H;
+              const goalH = ((genreGoals[g.name]||0)/maxVal)*H;
+              const label = g.name.length > 4 ? g.name.slice(0,4) : g.name;
               return (
-                <g key={g}>
-                  {goalH > 0 && <rect x={x} y={chartH - goalH} width={barW} height={goalH} fill="#C0D4F0" rx="2" />}
-                  <rect x={x + (goalH > 0 ? barW + 2 : 0)} y={chartH - actualH} width={barW} height={actualH} fill={GOLD} rx="2" />
-                  <text x={x + barW/2} y={chartH + 14} textAnchor="middle" fontSize="9" fill="#666">{label}</text>
-                  {actualH > 0 && <text x={x + (goalH > 0 ? barW + 2 : 0) + barW/2} y={chartH - actualH - 3} textAnchor="middle" fontSize="8" fill={GOLD}>{((genreTotals[g]||0)/60).toFixed(1)}</text>}
+                <g key={g.name}>
+                  {goalH > 0 && <rect x={x} y={H-goalH} width={bw} height={goalH} fill="#C0D4F0" rx="2" />}
+                  <rect x={x+(goalH>0?bw+2:0)} y={H-actualH} width={bw} height={actualH} fill={g.color} rx="2" />
+                  <text x={x+bw/2} y={H+14} textAnchor="middle" fontSize="8" fill="#666">{label}</text>
+                  {actualH>0&&<text x={x+(goalH>0?bw+2:0)+bw/2} y={H-actualH-3} textAnchor="middle" fontSize="8" fill={g.color}>{((genreTotals[g.name]||0)/60).toFixed(1)}</text>}
                 </g>
               );
             })}
-            <line x1="28" y1="0" x2="28" y2={chartH} stroke="#ddd" strokeWidth="1" />
-            <line x1="28" y1={chartH} x2={chartW} y2={chartH} stroke="#ddd" strokeWidth="1" />
+            <line x1="18" y1="0" x2="18" y2={H} stroke="#ddd" strokeWidth="1" />
+            <line x1="18" y1={H} x2={W} y2={H} stroke="#ddd" strokeWidth="1" />
           </svg>
           <div style={{ display: 'flex', gap: 12, fontSize: 10, color: '#888', justifyContent: 'center', marginTop: 4 }}>
-            <span><span style={{ display: 'inline-block', width: 10, height: 10, background: GOLD, marginRight: 4, borderRadius: 2 }}></span>実績</span>
             <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#C0D4F0', marginRight: 4, borderRadius: 2 }}></span>目標</span>
+            <span>各色 = 実績</span>
           </div>
         </div>
       )}
 
       <div style={{ ...st.between, marginBottom: 10 }}>
         <div style={st.label}>目標時間（時間/週）</div>
-        <button onClick={() => { setGoalInputs({...genreGoals}); setEditGoal(!editGoal); }} style={{ ...st.btn(LIGHT, '#333'), padding: '5px 10px', fontSize: 11 }}>{editGoal?'キャンセル':'編集'}</button>
+        <button onClick={() => { setGoalInputs({...genreGoals}); setEditGoal(!editGoal); }} style={{ ...st.btn(LIGHT,'#333'), padding: '5px 10px', fontSize: 11 }}>{editGoal?'キャンセル':'編集'}</button>
       </div>
       {editGoal ? (
         <div style={{ ...st.card, marginBottom: 14 }}>
           {genres.map(g => (
-            <div key={g} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <div style={{ flex: 1, fontSize: 13, color: '#111' }}>{g}</div>
-              <input type="number" value={goalInputs[g]||''} onChange={e => setGoalInputs(gi => ({...gi,[g]:parseFloat(e.target.value)||0}))} placeholder="0" style={{ ...st.inp, width: 70, textAlign: 'center' }} />
+            <div key={g.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <div style={{ width: 12, height: 12, borderRadius: '50%', background: g.color, flexShrink: 0 }} />
+              <div style={{ flex: 1, fontSize: 13, color: '#111' }}>{g.name}</div>
+              <input type="number" value={goalInputs[g.name]||''} onChange={e => setGoalInputs(gi => ({...gi,[g.name]:parseFloat(e.target.value)||0}))} placeholder="0" style={{ ...st.inp, width: 70, textAlign: 'center' }} />
               <span style={{ fontSize: 11, color: '#888' }}>h</span>
             </div>
           ))}
@@ -408,40 +651,38 @@ function ScheduleTab({ data, upd }) {
         </div>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-          {genres.filter(g => genreGoals[g]).map(g => (
-            <div key={g} style={{ background: LIGHT, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '6px 12px', fontSize: 12 }}>
-              <span style={{ color: '#333' }}>{g}</span>
-              <span style={{ color: GOLD, marginLeft: 6, fontWeight: 700 }}>
-                {((genreTotals[g]||0)/60).toFixed(1)}h / {genreGoals[g]}h
-              </span>
+          {genres.filter(g => genreGoals[g.name]).map(g => (
+            <div key={g.name} style={{ background: LIGHT, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '6px 12px', fontSize: 12 }}>
+              <span style={{ color: '#333' }}>{g.name}</span>
+              <span style={{ color: g.color, marginLeft: 6, fontWeight: 700 }}>{((genreTotals[g.name]||0)/60).toFixed(1)}h / {genreGoals[g.name]}h</span>
             </div>
           ))}
-          {genres.filter(g => genreGoals[g]).length === 0 && <div style={{ fontSize: 12, color: '#aaa' }}>「編集」から目標時間を設定してください</div>}
+          {genres.filter(g => genreGoals[g.name]).length===0 && <div style={{ fontSize: 12, color: '#aaa' }}>「編集」から目標時間を設定してください</div>}
         </div>
       )}
+    </div>
+  );
+}
 
-      <div style={st.label}>今週の予定</div>
-      {weekDates.map(d => {
-        const dayItems = (data.schedule||[]).filter(s => s.date === d).sort((a,b) => a.start.localeCompare(b.start));
-        if (dayItems.length === 0) return null;
-        const dt = new Date(d+'T00:00:00');
-        const dow = ['日','月','火','水','木','金','土'][dt.getDay()];
-        return (
-          <div key={d} style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>{d.slice(5).replace('-','/')}（{dow}）</div>
-            {dayItems.map(s => (
-              <div key={s.id} style={{ ...st.card, borderLeft: `3px solid ${GOLD}`, padding: '9px 12px', marginBottom: 5, display: 'flex', gap: 8, alignItems: 'center' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, color: '#888' }}>{s.start}{s.end?' — '+s.end:''}</div>
-                  <div style={{ fontSize: 13, color: '#111' }}>{s.title}</div>
-                  {s.genre && <span style={{ fontSize: 10, background: '#EAE0FF', color: '#5B3FA6', borderRadius: 3, padding: '1px 6px' }}>{s.genre}</span>}
-                </div>
-                <button onClick={() => upd(d2 => { d2.schedule = d2.schedule.filter(x => x.id !== s.id); })} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
-              </div>
-            ))}
-          </div>
-        );
-      })}
+function AddGenreForm({ genres, upd }) {
+  const [name, setName] = useState('');
+  const [color, setColor] = useState(GENRE_COLORS[0]);
+  function add() {
+    if (!name.trim()) return;
+    upd(d => { if (!d.genres.find(g => g.name===name.trim())) d.genres = [...d.genres, { name: name.trim(), color }]; });
+    setName('');
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="新しいジャンル名" style={{ ...st.inp, flex: 1 }} />
+        <button onClick={add} style={st.btn()}>追加</button>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {GENRE_COLORS.map(c => (
+          <div key={c} onClick={() => setColor(c)} style={{ width: 22, height: 22, borderRadius: '50%', background: c, border: `2px solid ${color===c?'#111':BORDER}`, cursor: 'pointer' }} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -450,13 +691,25 @@ function ScheduleTab({ data, upd }) {
 function TodoTab({ data, upd }) {
   const [filter, setFilter] = useState('active');
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({ text: '', priority: 'medium', deadline: '', repeat: '' });
+  const { confirm, Dialog } = useConfirm();
 
   function saveTodo() {
     if (!form.text.trim()) return;
-    upd(d => { d.todos = [...d.todos, { id: Date.now(), ...form, done: false }]; });
+    if (editId) {
+      upd(d => { d.todos = d.todos.map(x => x.id===editId?{...x,...form}:x); });
+      setEditId(null);
+    } else {
+      upd(d => { d.todos = [...d.todos, { id: Date.now(), ...form, done: false }]; });
+    }
     setForm({ text: '', priority: 'medium', deadline: '', repeat: '' });
     setShowForm(false);
+  }
+
+  async function deleteTodo(id) {
+    const ok = await confirm('このタスクを削除しますか？');
+    if (ok) upd(d => { d.todos = d.todos.filter(x => x.id!==id); });
   }
 
   const todos = (data.todos||[]).filter(t => filter==='done'?t.done:!t.done).sort((a,b) => {
@@ -466,9 +719,10 @@ function TodoTab({ data, upd }) {
 
   return (
     <div>
+      <Dialog />
       <div style={{ ...st.between, marginBottom: 12 }}>
         <div style={st.label}>タスク管理</div>
-        <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 追加</button>
+        <button onClick={() => { setForm({ text:'', priority:'medium', deadline:'', repeat:'' }); setEditId(null); setShowForm(!showForm); }} style={st.btn()}>+ 追加</button>
       </div>
       {showForm && (
         <div style={{ ...st.card, border: `1px solid ${GOLD}`, marginBottom: 12 }}>
@@ -482,7 +736,7 @@ function TodoTab({ data, upd }) {
           <select value={form.repeat} onChange={e => setForm(f => ({...f,repeat:e.target.value}))} style={{ ...st.inp, marginBottom: 10 }}>
             <option value="">繰り返しなし</option><option value="daily">毎日</option><option value="weekly">毎週</option><option value="monthly">毎月</option>
           </select>
-          <button onClick={saveTodo} style={st.btn()}>保存</button>
+          <button onClick={saveTodo} style={st.btn()}>{editId?'更新':'保存'}</button>
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
@@ -490,7 +744,7 @@ function TodoTab({ data, upd }) {
           <button key={k} onClick={() => setFilter(k)} style={{ padding: '5px 12px', background: filter===k?GOLD:'#fff', border: `1px solid ${filter===k?GOLD:BORDER}`, borderRadius: 3, color: filter===k?'#fff':'#555', fontSize: 11, cursor: 'pointer' }}>{l}</button>
         ))}
       </div>
-      {todos.length === 0 && <div style={{ fontSize: 12, color: '#aaa' }}>タスクなし</div>}
+      {todos.length===0 && <div style={{ fontSize: 12, color: '#aaa' }}>タスクなし</div>}
       {todos.map(t => {
         const pc = PCOLOR[t.priority]||PCOLOR.medium;
         const overdue = t.deadline && t.deadline < today() && !t.done;
@@ -505,7 +759,8 @@ function TodoTab({ data, upd }) {
                 {t.repeat && <span style={{ fontSize: 10, color: '#888' }}>{{daily:'毎日',weekly:'毎週',monthly:'毎月'}[t.repeat]}</span>}
               </div>
             </div>
-            <button onClick={() => upd(d => { d.todos = d.todos.filter(x => x.id!==t.id); })} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
+            <button onClick={() => { setForm({text:t.text,priority:t.priority,deadline:t.deadline||'',repeat:t.repeat||''}); setEditId(t.id); setShowForm(true); }} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 13 }}>✏️</button>
+            <button onClick={() => deleteTodo(t.id)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
           </div>
         );
       })}
@@ -516,21 +771,34 @@ function TodoTab({ data, upd }) {
 // ── GOALS ──
 function GoalsTab({ data, upd }) {
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({ title: '', current: '', target: '', unit: '', deadline: '', steps: '' });
+  const { confirm, Dialog } = useConfirm();
 
   function saveGoal() {
     if (!form.title) return;
     const steps = form.steps.split('\n').filter(s => s.trim()).map(s => ({ text: s.trim(), done: false }));
-    upd(d => { d.goals = [...(d.goals||[]), { id: Date.now(), title: form.title, current: parseFloat(form.current)||0, target: parseFloat(form.target)||100, unit: form.unit, deadline: form.deadline, steps }]; });
-    setForm({ title: '', current: '', target: '', unit: '', deadline: '', steps: '' });
+    if (editId) {
+      upd(d => { d.goals = d.goals.map(x => x.id===editId?{...x,title:form.title,current:parseFloat(form.current)||0,target:parseFloat(form.target)||100,unit:form.unit,deadline:form.deadline,steps}:x); });
+      setEditId(null);
+    } else {
+      upd(d => { d.goals = [...(d.goals||[]), { id: Date.now(), title: form.title, current: parseFloat(form.current)||0, target: parseFloat(form.target)||100, unit: form.unit, deadline: form.deadline, steps }]; });
+    }
+    setForm({ title:'', current:'', target:'', unit:'', deadline:'', steps:'' });
     setShowForm(false);
+  }
+
+  async function deleteGoal(id) {
+    const ok = await confirm('この目標を削除しますか？');
+    if (ok) upd(d => { d.goals = d.goals.filter(x => x.id!==id); });
   }
 
   return (
     <div>
+      <Dialog />
       <div style={{ ...st.between, marginBottom: 12 }}>
         <div style={st.label}>目標管理</div>
-        <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 追加</button>
+        <button onClick={() => { setForm({title:'',current:'',target:'',unit:'',deadline:'',steps:''}); setEditId(null); setShowForm(!showForm); }} style={st.btn()}>+ 追加</button>
       </div>
       {showForm && (
         <div style={{ ...st.card, border: `1px solid ${GOLD}`, marginBottom: 12 }}>
@@ -544,17 +812,20 @@ function GoalsTab({ data, upd }) {
             <input type="date" value={form.deadline} onChange={e => setForm(f => ({...f,deadline:e.target.value}))} style={st.inp} />
           </div>
           <textarea value={form.steps} onChange={e => setForm(f => ({...f,steps:e.target.value}))} placeholder="ステップ（改行区切り）" rows={3} style={{ ...st.inp, resize: 'vertical', marginBottom: 10 }} />
-          <button onClick={saveGoal} style={st.btn()}>保存</button>
+          <button onClick={saveGoal} style={st.btn()}>{editId?'更新':'保存'}</button>
         </div>
       )}
-      {(data.goals||[]).length === 0 && <div style={{ fontSize: 12, color: '#aaa' }}>目標を追加してください</div>}
+      {(data.goals||[]).length===0 && <div style={{ fontSize: 12, color: '#aaa' }}>目標を追加してください</div>}
       {(data.goals||[]).map(g => {
-        const prog = g.target > 0 ? Math.min(100, Math.round((g.current/g.target)*100)) : 0;
+        const prog = g.target>0?Math.min(100,Math.round((g.current/g.target)*100)):0;
         return (
           <div key={g.id} style={{ ...st.card, marginBottom: 10 }}>
             <div style={st.between}>
               <div style={{ fontSize: 14, color: '#111', fontWeight: 'bold' }}>{g.title}</div>
-              <button onClick={() => upd(d => { d.goals = d.goals.filter(x => x.id!==g.id); })} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => { setForm({title:g.title,current:String(g.current),target:String(g.target),unit:g.unit||'',deadline:g.deadline||'',steps:(g.steps||[]).map(s=>s.text).join('\n')}); setEditId(g.id); setShowForm(true); }} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 13 }}>✏️</button>
+                <button onClick={() => deleteGoal(g.id)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
+              </div>
             </div>
             {g.deadline && <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>期限: {g.deadline}</div>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0' }}>
@@ -566,14 +837,14 @@ function GoalsTab({ data, upd }) {
             <div style={{ fontSize: 12, color: '#333' }}>{g.current}{g.unit} / {g.target}{g.unit}</div>
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
               <input type="number" id={`gu-${g.id}`} placeholder="現在値を更新" style={{ ...st.inp, flex: 1, fontSize: 12 }} />
-              <button onClick={() => { const v = parseFloat(document.getElementById(`gu-${g.id}`)?.value); if (!isNaN(v)) upd(d => { d.goals = d.goals.map(x => x.id===g.id?{...x,current:v}:x); }); }} style={{ ...st.btn(), fontSize: 11, padding: '8px 12px' }}>更新</button>
+              <button onClick={() => { const v=parseFloat(document.getElementById(`gu-${g.id}`)?.value); if(!isNaN(v)) upd(d => { d.goals=d.goals.map(x => x.id===g.id?{...x,current:v}:x); }); }} style={{ ...st.btn(), fontSize: 11, padding: '8px 12px' }}>更新</button>
             </div>
-            {g.steps && g.steps.length > 0 && (
+            {g.steps && g.steps.length>0 && (
               <div style={{ marginTop: 10, borderTop: `1px solid ${BORDER}`, paddingTop: 8 }}>
                 <div style={{ fontSize: 9, color: '#888', marginBottom: 6 }}>STEPS</div>
-                {g.steps.map((s2, si) => (
+                {g.steps.map((s2,si) => (
                   <div key={si} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                    <CheckCircle done={s2.done} onClick={() => upd(d => { const g2 = d.goals.find(x => x.id===g.id); if (g2) g2.steps[si].done = !g2.steps[si].done; })} />
+                    <CheckCircle done={s2.done} onClick={() => upd(d => { const g2=d.goals.find(x=>x.id===g.id); if(g2) g2.steps[si].done=!g2.steps[si].done; })} />
                     <div style={{ fontSize: 12, color: s2.done?'#aaa':'#111', textDecoration: s2.done?'line-through':'none' }}>{s2.text}</div>
                   </div>
                 ))}
@@ -590,16 +861,29 @@ function GoalsTab({ data, upd }) {
 function MoneyTab({ data, upd }) {
   const [viewMonth, setViewMonth] = useState(today().slice(0,7));
   const [showForm, setShowForm] = useState(false);
+  const [editRecord, setEditRecord] = useState(null);
   const [showResist, setShowResist] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [form, setForm] = useState({ date: today(), type: 'expense', amount: '', category: '', note: '' });
   const [resistForm, setResistForm] = useState({ name: '', price: '' });
+  const { confirm, Dialog } = useConfirm();
 
   function saveRecord() {
     const amount = parseInt(form.amount);
     if (!amount || isNaN(amount)) return;
-    upd(d => { d.finance.records = [{ id: Date.now(), ...form, amount }, ...d.finance.records]; });
+    if (editRecord) {
+      upd(d => { d.finance.records = d.finance.records.map(x => x.id===editRecord?{...x,...form,amount}:x); });
+      setEditRecord(null);
+    } else {
+      upd(d => { d.finance.records = [{ id: Date.now(), ...form, amount }, ...d.finance.records]; });
+    }
     setForm({ date: today(), type: 'expense', amount: '', category: '', note: '' });
     setShowForm(false);
+  }
+
+  async function deleteRecord(id) {
+    const ok = await confirm('この記録を削除しますか？');
+    if (ok) upd(d => { d.finance.records = d.finance.records.filter(x => x.id!==id); });
   }
 
   function saveResist() {
@@ -608,6 +892,11 @@ function MoneyTab({ data, upd }) {
     upd(d => { d.resist.items = [...(d.resist.items||[]), { id: Date.now(), name: resistForm.name, price }]; });
     setResistForm({ name: '', price: '' });
     setShowResist(false);
+  }
+
+  async function deleteResist(id) {
+    const ok = await confirm('この項目を削除しますか？');
+    if (ok) upd(d => { d.resist.items = d.resist.items.filter(i => i.id!==id); });
   }
 
   const recs = (data.finance.records||[]).filter(r => r.date && r.date.startsWith(viewMonth));
@@ -625,24 +914,66 @@ function MoneyTab({ data, upd }) {
   const log = data.resist?.log||{};
   const td = today();
   let totalSaved = 0;
-  Object.values(log).forEach(dl => Object.entries(dl).forEach(([id,sv]) => { if(sv) totalSaved += (items.find(i=>i.id==id)||{price:0}).price; }));
+  Object.values(log).forEach(dl => Object.entries(dl).forEach(([id,sv]) => { if(sv) totalSaved+=(items.find(i=>i.id==id)||{price:0}).price; }));
   const future10 = Math.round(totalSaved*Math.pow(1.07,10));
+
+  // Category pie for expenses
+  const catTotals = {};
+  recs.filter(r => r.type==='expense').forEach(r => {
+    const cat = r.category || '未分類';
+    catTotals[cat] = (catTotals[cat]||0) + r.amount;
+  });
+  const catEntries = Object.entries(catTotals).sort((a,b) => b[1]-a[1]);
+  let pieA = 0;
+  const catPieSlices = catEntries.map(([cat, amt], i) => {
+    const pct = amt / totalExpense;
+    const start = pieA;
+    pieA += pct * 360;
+    return { cat, amt, pct, start, end: pieA, color: GENRE_COLORS[i % GENRE_COLORS.length] };
+  });
+
+  function polarToXY(cx,cy,r,deg) { const rad=(deg-90)*Math.PI/180; return {x:cx+r*Math.cos(rad),y:cy+r*Math.sin(rad)}; }
+  function pieArc(cx,cy,r,start,end) { const s=polarToXY(cx,cy,r,start); const e=polarToXY(cx,cy,r,end); const large=end-start>180?1:0; return `M ${cx} ${cy} L ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y} Z`; }
+
+  const displayRecs = showAll ? recs : recs.slice(0,5);
 
   return (
     <div>
+      <Dialog />
       <div style={st.label}>収支管理</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
         <input type="month" value={viewMonth} onChange={e => setViewMonth(e.target.value)} style={{ ...st.inp, flex: 1 }} />
-        <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 追加</button>
+        <button onClick={() => { setForm({date:today(),type:'expense',amount:'',category:'',note:''}); setEditRecord(null); setShowForm(!showForm); }} style={st.btn()}>+ 追加</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
         {[{l:'収入',v:totalIncome,c:GREEN},{l:'支出',v:totalExpense,c:RED},{l:'収支',v:balance,c:balance>=0?GOLD:RED}].map(x => (
           <div key={x.l} style={{ background: LIGHT, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '12px', textAlign: 'center' }}>
             <div style={{ fontSize: 9, color: '#888', marginBottom: 4 }}>{x.l}</div>
-            <div style={{ fontSize: 15, color: x.c, fontWeight: 'bold' }}>{fmtMan(x.v)}</div>
+            <div style={{ fontSize: 14, color: x.c, fontWeight: 'bold' }}>{fmtYen(x.v)}</div>
           </div>
         ))}
       </div>
+
+      {catPieSlices.length > 0 && (
+        <div style={{ ...st.card, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>支出の内訳</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <svg width="90" height="90" viewBox="0 0 90 90">
+              {catPieSlices.map((s,i) => <path key={i} d={pieArc(45,45,40,s.start,s.end)} fill={s.color} />)}
+            </svg>
+            <div style={{ flex: 1 }}>
+              {catPieSlices.map(s => (
+                <div key={s.cat} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: '#333', flex: 1 }}>{s.cat}</span>
+                  <span style={{ fontSize: 11, color: '#888' }}>{fmtYen(s.amt)} ({Math.round(s.pct*100)}%)</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showForm && (
         <div style={{ ...st.card, border: `1px solid ${GOLD}`, marginBottom: 12 }}>
           <div style={{ ...st.grid2, marginBottom: 8 }}>
@@ -654,29 +985,36 @@ function MoneyTab({ data, upd }) {
           <input type="number" value={form.amount} onChange={e => setForm(f => ({...f,amount:e.target.value}))} placeholder="金額（円）" style={{ ...st.inp, marginBottom: 8 }} />
           <input value={form.category} onChange={e => setForm(f => ({...f,category:e.target.value}))} placeholder="ジャンル（食費・副業など）" style={{ ...st.inp, marginBottom: 8 }} />
           <input value={form.note} onChange={e => setForm(f => ({...f,note:e.target.value}))} placeholder="メモ" style={{ ...st.inp, marginBottom: 10 }} />
-          <button onClick={saveRecord} style={st.btn()}>保存</button>
+          <button onClick={saveRecord} style={st.btn()}>{editRecord?'更新':'保存'}</button>
         </div>
       )}
+
       {recs.length===0 && <div style={{ fontSize: 12, color: '#aaa', marginBottom: 12 }}>この月の記録なし</div>}
-      {recs.map(r => (
-        <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', marginBottom: 7, background: '#fff', border: `1px solid ${BORDER}`, borderLeft: `3px solid ${r.type==='income'?GREEN:RED}`, borderRadius: 4 }}>
+      {displayRecs.map(r => (
+        <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', marginBottom: 7, background: '#fff', border: `1px solid ${BORDER}`, borderLeft: `3px solid ${r.type==='income'?GREEN:RED}`, borderRadius: 4 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, color: '#111' }}>{r.category||''} {r.note&&<span style={{ fontSize: 11, color: '#888' }}>— {r.note}</span>}</div>
             <div style={{ fontSize: 10, color: '#888' }}>{r.date}</div>
           </div>
-          <div style={{ fontSize: 13, color: r.type==='income'?GREEN:RED, fontWeight: 'bold' }}>{r.type==='income'?'+':'-'}{r.amount.toLocaleString()}</div>
-          <button onClick={() => upd(d => { d.finance.records = d.finance.records.filter(x => x.id!==r.id); })} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
+          <div style={{ fontSize: 13, color: r.type==='income'?GREEN:RED, fontWeight: 'bold', whiteSpace: 'nowrap' }}>{r.type==='income'?'+':'-'}{fmtYen(r.amount)}</div>
+          <button onClick={() => { setForm({date:r.date,type:r.type,amount:String(r.amount),category:r.category||'',note:r.note||''}); setEditRecord(r.id); setShowForm(true); }} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 13 }}>✏️</button>
+          <button onClick={() => deleteRecord(r.id)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
         </div>
       ))}
+      {recs.length > 5 && (
+        <button onClick={() => setShowAll(!showAll)} style={{ ...st.btn(LIGHT,'#555'), width: '100%', marginBottom: 14, fontSize: 12 }}>
+          {showAll ? '閉じる' : `もっと見る（残り${recs.length-5}件）`}
+        </button>
+      )}
 
       <div style={{ borderTop: `1px solid ${BORDER}`, marginTop: 16, paddingTop: 16 }}>
         <div style={st.label}>積立状況</div>
         <div style={{ ...st.card, marginBottom: 10 }}>
-          <div style={st.between}><div style={{ fontSize: 12, color: '#333' }}>投資累計（目標150万）</div><div style={{ fontSize: 13, color: GOLD, fontWeight: 'bold' }}>{fmtYen(data.finance.investTotal||0)}</div></div>
+          <div style={st.between}><div style={{ fontSize: 12, color: '#333' }}>投資時価残高（目標150万）</div><div style={{ fontSize: 13, color: GOLD, fontWeight: 'bold' }}>{fmtYen(data.finance.investTotal||0)}</div></div>
           <ProgressBar value={invProg} color={GOLD} />
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <input type="number" id="invest-upd" placeholder="累計投資額を入力" style={{ ...st.inp, flex: 1, fontSize: 12 }} />
-            <button onClick={() => { const v = parseFloat(document.getElementById('invest-upd')?.value); if(!isNaN(v)) upd(d => { d.finance.investTotal=v; }); }} style={{ ...st.btn(), fontSize: 11, padding: '8px 12px' }}>更新</button>
+            <input type="number" id="invest-upd" placeholder="時価残高を入力" style={{ ...st.inp, flex: 1, fontSize: 12 }} />
+            <button onClick={() => { const v=parseFloat(document.getElementById('invest-upd')?.value); if(!isNaN(v)) upd(d => { d.finance.investTotal=v; }); }} style={{ ...st.btn(), fontSize: 11, padding: '8px 12px' }}>更新</button>
           </div>
         </div>
         <div style={{ ...st.card, marginBottom: 14 }}>
@@ -684,7 +1022,7 @@ function MoneyTab({ data, upd }) {
           <ProgressBar value={defProg} color={NAVY} />
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
             <input type="number" id="defense-upd" placeholder="累計防衛費を入力" style={{ ...st.inp, flex: 1, fontSize: 12 }} />
-            <button onClick={() => { const v = parseFloat(document.getElementById('defense-upd')?.value); if(!isNaN(v)) upd(d => { d.finance.defenseTotal=v; }); }} style={{ ...st.btn(), fontSize: 11, padding: '8px 12px' }}>更新</button>
+            <button onClick={() => { const v=parseFloat(document.getElementById('defense-upd')?.value); if(!isNaN(v)) upd(d => { d.finance.defenseTotal=v; }); }} style={{ ...st.btn(), fontSize: 11, padding: '8px 12px' }}>更新</button>
           </div>
         </div>
         <div style={st.label}>FIREシミュレーション</div>
@@ -693,7 +1031,7 @@ function MoneyTab({ data, upd }) {
           <div style={{ fontSize: 24, color: GOLD, fontWeight: 'bold' }}>{projected.toLocaleString()}<span style={{ fontSize: 13, color: '#888' }}>万円</span></div>
           <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
             <input type="number" id="inv-monthly" placeholder="月次投資額" style={{ ...st.inp, flex: 1, fontSize: 12 }} defaultValue={data.finance.investment||''} />
-            <button onClick={() => { const v = parseInt(document.getElementById('inv-monthly')?.value); if(!isNaN(v)) upd(d => { d.finance.investment=v; }); }} style={{ ...st.btn(), fontSize: 11, padding: '8px 12px' }}>設定</button>
+            <button onClick={() => { const v=parseInt(document.getElementById('inv-monthly')?.value); if(!isNaN(v)) upd(d => { d.finance.investment=v; }); }} style={{ ...st.btn(), fontSize: 11, padding: '8px 12px' }}>設定</button>
           </div>
         </div>
       </div>
@@ -722,13 +1060,9 @@ function MoneyTab({ data, upd }) {
             <div key={item.id} style={{ ...st.card, marginBottom: 8 }}>
               <div style={st.between}>
                 <div><div style={{ fontSize: 13, color: '#111', fontWeight: 'bold' }}>{item.name}</div><div style={{ fontSize: 12, color: GOLD }}>{fmtYen(item.price)} / 回</div></div>
-                <button onClick={() => upd(d => { d.resist.items = d.resist.items.filter(i => i.id!==item.id); })} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
+                <button onClick={() => deleteResist(item.id)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
               </div>
-              <button onClick={() => upd(d => {
-                if(!d.resist.log) d.resist.log={};
-                if(!d.resist.log[td]) d.resist.log[td]={};
-                d.resist.log[td][item.id]=!d.resist.log[td][item.id];
-              })} style={{ width: '100%', marginTop: 10, padding: 8, background: todayDone?GREEN:'#fff', border: `1px solid ${todayDone?GREEN:BORDER}`, borderRadius: 4, color: todayDone?'#fff':'#333', fontSize: 12, cursor: 'pointer' }}>
+              <button onClick={() => upd(d => { if(!d.resist.log) d.resist.log={}; if(!d.resist.log[td]) d.resist.log[td]={}; d.resist.log[td][item.id]=!d.resist.log[td][item.id]; })} style={{ width: '100%', marginTop: 10, padding: 8, background: todayDone?GREEN:'#fff', border: `1px solid ${todayDone?GREEN:BORDER}`, borderRadius: 4, color: todayDone?'#fff':'#333', fontSize: 12, cursor: 'pointer' }}>
                 {todayDone?'✓ 今日も我慢した':'今日我慢した'}
               </button>
             </div>
@@ -743,32 +1077,43 @@ function MoneyTab({ data, upd }) {
 function WeightTab({ data, upd }) {
   const [form, setForm] = useState({ date: today(), weight: '' });
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const { confirm, Dialog } = useConfirm();
 
   function saveWeight() {
     const w = parseFloat(form.weight);
     if (isNaN(w)) return;
-    upd(d => { d.weight = [{ id: Date.now(), date: form.date, weight: w }, ...(d.weight||[])].sort((a,b) => b.date.localeCompare(a.date)); });
+    if (editId) {
+      upd(d => { d.weight = d.weight.map(x => x.id===editId?{...x,date:form.date,weight:w}:x).sort((a,b) => b.date.localeCompare(a.date)); });
+      setEditId(null);
+    } else {
+      upd(d => { d.weight = [{ id: Date.now(), date: form.date, weight: w }, ...(d.weight||[])].sort((a,b) => b.date.localeCompare(a.date)); });
+    }
     setForm({ date: today(), weight: '' });
     setShowForm(false);
   }
 
+  async function deleteWeight(id) {
+    const ok = await confirm('この記録を削除しますか？');
+    if (ok) upd(d => { d.weight = d.weight.filter(x => x.id!==id); });
+  }
+
   const records = [...(data.weight||[])].reverse().slice(-30);
   const latest = (data.weight||[])[0];
-  const W = 320, H = 120;
+  const W = 300, H = 110;
   const weights = records.map(r => r.weight);
-  const minW = weights.length > 0 ? Math.min(...weights) - 1 : 50;
-  const maxW = weights.length > 0 ? Math.max(...weights) + 1 : 80;
-
-  function toY(w) { return H - ((w - minW) / (maxW - minW)) * H; }
-  function toX(i) { return records.length > 1 ? (i / (records.length - 1)) * (W - 20) + 10 : W/2; }
-
-  const points = records.map((r, i) => `${toX(i)},${toY(r.weight)}`).join(' ');
+  const minW = weights.length>0?Math.min(...weights)-1:50;
+  const maxW = weights.length>0?Math.max(...weights)+1:80;
+  function toY(w) { return H-((w-minW)/(maxW-minW))*H; }
+  function toX(i) { return records.length>1?(i/(records.length-1))*(W-20)+10:W/2; }
+  const points = records.map((r,i) => `${toX(i)},${toY(r.weight)}`).join(' ');
 
   return (
     <div>
+      <Dialog />
       <div style={{ ...st.between, marginBottom: 12 }}>
         <div style={st.label}>体重記録</div>
-        <button onClick={() => setShowForm(!showForm)} style={st.btn()}>+ 記録</button>
+        <button onClick={() => { setForm({date:today(),weight:''}); setEditId(null); setShowForm(!showForm); }} style={st.btn()}>+ 記録</button>
       </div>
       {latest && (
         <div style={{ ...st.card, textAlign: 'center', marginBottom: 14, background: '#FBF7EE', border: `1px solid ${GOLD}50` }}>
@@ -783,34 +1128,29 @@ function WeightTab({ data, upd }) {
             <input type="date" value={form.date} onChange={e => setForm(f => ({...f,date:e.target.value}))} style={st.inp} />
             <input type="number" step="0.1" value={form.weight} onChange={e => setForm(f => ({...f,weight:e.target.value}))} placeholder="体重 (kg)" style={st.inp} />
           </div>
-          <button onClick={saveWeight} style={st.btn()}>保存</button>
+          <button onClick={saveWeight} style={st.btn()}>{editId?'更新':'保存'}</button>
         </div>
       )}
-      {records.length > 1 && (
+      {records.length>1 && (
         <div style={{ ...st.card, marginBottom: 14 }}>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>体重推移（kg）</div>
           <svg width="100%" viewBox={`0 0 ${W} ${H+20}`}>
             <polyline points={points} fill="none" stroke={GOLD} strokeWidth="2" />
-            {records.map((r, i) => (
-              <circle key={r.id} cx={toX(i)} cy={toY(r.weight)} r="3" fill={GOLD} />
-            ))}
-            {records.map((r, i) => (
-              (i === 0 || i === records.length-1) && (
-                <text key={`t${r.id}`} x={toX(i)} y={toY(r.weight)-6} textAnchor="middle" fontSize="9" fill="#888">{r.weight}</text>
-              )
-            ))}
+            {records.map((r,i) => <circle key={r.id} cx={toX(i)} cy={toY(r.weight)} r="3" fill={GOLD} />)}
+            {records.map((r,i) => (i===0||i===records.length-1)&&<text key={`t${r.id}`} x={toX(i)} y={toY(r.weight)-6} textAnchor="middle" fontSize="9" fill="#888">{r.weight}</text>)}
             <text x="0" y={H+16} fontSize="9" fill="#aaa">{records[0]?.date.slice(5)}</text>
-            {records.length>1 && <text x={W} y={H+16} fontSize="9" fill="#aaa" textAnchor="end">{records[records.length-1]?.date.slice(5)}</text>}
+            {records.length>1&&<text x={W} y={H+16} fontSize="9" fill="#aaa" textAnchor="end">{records[records.length-1]?.date.slice(5)}</text>}
           </svg>
         </div>
       )}
       <div style={st.label}>記録一覧</div>
-      {(data.weight||[]).length===0 && <div style={{ fontSize: 12, color: '#aaa' }}>まだ記録がありません</div>}
+      {(data.weight||[]).length===0&&<div style={{ fontSize: 12, color: '#aaa' }}>まだ記録がありません</div>}
       {(data.weight||[]).slice(0,20).map(r => (
         <div key={r.id} style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', marginBottom: 6, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 4 }}>
           <div style={{ flex: 1, fontSize: 11, color: '#888' }}>{r.date}</div>
           <div style={{ fontSize: 18, color: '#111', fontWeight: 'bold' }}>{r.weight}<span style={{ fontSize: 11, color: '#888' }}>kg</span></div>
-          <button onClick={() => upd(d => { d.weight = d.weight.filter(x => x.id!==r.id); })} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16, marginLeft: 10 }}>×</button>
+          <button onClick={() => { setForm({date:r.date,weight:String(r.weight)}); setEditId(r.id); setShowForm(true); }} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 13, marginLeft: 8 }}>✏️</button>
+          <button onClick={() => deleteWeight(r.id)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16, marginLeft: 4 }}>×</button>
         </div>
       ))}
     </div>
@@ -822,6 +1162,7 @@ function DiaryTab({ data, upd }) {
   const [mode, setMode] = useState('list');
   const [entry, setEntry] = useState({ date: today(), mood: '3', text: '', sleep: '' });
   const [viewing, setViewing] = useState(null);
+  const { confirm, Dialog } = useConfirm();
 
   function saveEntry() {
     if (!entry.text.trim()) return;
@@ -831,6 +1172,11 @@ function DiaryTab({ data, upd }) {
       else d.diary=[{...entry,id:Date.now()},...(d.diary||[])];
     });
     setMode('list');
+  }
+
+  async function deleteDiary(id) {
+    const ok = await confirm('この日記を削除しますか？');
+    if (ok) upd(d => { d.diary = d.diary.filter(x => x.id!==id); });
   }
 
   if (mode==='write') {
@@ -844,9 +1190,7 @@ function DiaryTab({ data, upd }) {
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 10, color: '#888', marginBottom: 6 }}>気分</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {MOODS.map((m, i) => (
-              <button key={i} onClick={() => setEntry(v => ({...v,mood:String(i)}))} style={{ fontSize: 20, background: entry.mood==i?'#FBF7EE':'#fff', border: `1px solid ${entry.mood==i?GOLD:BORDER}`, borderRadius: 4, padding: '5px 8px', cursor: 'pointer' }}>{m}</button>
-            ))}
+            {MOODS.map((m,i) => <button key={i} onClick={() => setEntry(v => ({...v,mood:String(i)}))} style={{ fontSize: 20, background: entry.mood==i?'#FBF7EE':'#fff', border: `1px solid ${entry.mood==i?GOLD:BORDER}`, borderRadius: 4, padding: '5px 8px', cursor: 'pointer' }}>{m}</button>)}
           </div>
         </div>
         <div style={{ marginBottom: 8 }}>
@@ -863,14 +1207,19 @@ function DiaryTab({ data, upd }) {
     const e = (data.diary||[]).find(x => x.id===viewing);
     return (
       <div>
+        <Dialog />
         <div style={{ ...st.between, marginBottom: 14 }}>
           <div style={st.label}>{e?.date}</div>
-          <button onClick={() => setViewing(null)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>← 戻る</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => { setEntry({date:e.date,mood:e.mood,text:e.text,sleep:e.sleep||''}); setMode('write'); setViewing(null); }} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 13 }}>✏️</button>
+            <button onClick={() => { deleteDiary(e.id); setViewing(null); }} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
+            <button onClick={() => setViewing(null)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12 }}>← 戻る</button>
+          </div>
         </div>
         {e && (
           <div style={st.card}>
             <div style={{ fontSize: 22, marginBottom: 8 }}>{MOODS[parseInt(e.mood)]||'😐'}</div>
-            {e.sleep && <div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>睡眠: {e.sleep}</div>}
+            {e.sleep&&<div style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>睡眠: {e.sleep}</div>}
             <div style={{ fontSize: 13, lineHeight: 1.8, color: '#111', whiteSpace: 'pre-wrap' }}>{e.text}</div>
           </div>
         )}
@@ -880,19 +1229,22 @@ function DiaryTab({ data, upd }) {
 
   return (
     <div>
+      <Dialog />
       <div style={{ ...st.between, marginBottom: 12 }}>
         <div style={st.label}>日記</div>
-        <button onClick={() => { setEntry({ date: today(), mood: '3', text: '', sleep: '' }); setMode('write'); }} style={st.btn()}>+ 書く</button>
+        <button onClick={() => { setEntry({date:today(),mood:'3',text:'',sleep:''}); setMode('write'); }} style={st.btn()}>+ 書く</button>
       </div>
-      {(data.diary||[]).length===0 && <div style={{ fontSize: 12, color: '#aaa' }}>まだ日記がありません</div>}
+      {(data.diary||[]).length===0&&<div style={{ fontSize: 12, color: '#aaa' }}>まだ日記がありません</div>}
       {(data.diary||[]).map(e => (
-        <div key={e.id} onClick={() => setViewing(e.id)} style={{ ...st.card, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-          <div style={{ fontSize: 20 }}>{MOODS[parseInt(e.mood)]||'😐'}</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: '#888' }}>{e.date}{e.sleep?' | '+e.sleep:''}</div>
-            <div style={{ fontSize: 13, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.text}</div>
+        <div key={e.id} style={{ ...st.card, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <div onClick={() => setViewing(e.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+            <div style={{ fontSize: 20 }}>{MOODS[parseInt(e.mood)]||'😐'}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, color: '#888' }}>{e.date}{e.sleep?' | '+e.sleep:''}</div>
+              <div style={{ fontSize: 13, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.text}</div>
+            </div>
           </div>
-          <div style={{ color: '#aaa' }}>›</div>
+          <button onClick={() => deleteDiary(e.id)} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 16 }}>×</button>
         </div>
       ))}
     </div>
