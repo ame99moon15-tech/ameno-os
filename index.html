@@ -7,9 +7,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="飴野家OS" />
   <title>飴野家 Personal OS</title>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.0/babel.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     html, body { height: 100%; background: #fff; color: #111; font-family: 'Georgia', 'Times New Roman', serif; }
@@ -61,10 +61,14 @@ const GENRE_COLORS=[
   '#30C0A0','#D08030','#7050A0','#50B0D0','#C08050','#408060','#B05070','#6090D0','#A06030','#30A0C0',
 ];
 
+const DEFAULT_CLUBS=['ドライバー','3W','5W','5U','4I','5I','6I','7I','8I','9I','PW','AW','SW','LW','パター'];
+const MUSCLE_PARTS=['胸','背中','肩','腕','腹','脚','全身'];
 const DEFAULT={
   pin:null,schedule:[],todos:[],goals:[],
   finance:{investment:0,records:[],investTotal:0,defenseTotal:0},
   resist:{items:[],log:{}},diary:[],weight:[],birthdays:[],
+  workout:{sessions:[]},books:[],quotes:[],tabGoals:{},
+  golf:{courses:[],rounds:[],practice:[],notes:[],clubs:['ドライバー','3W','5W','5U','4I','5I','6I','7I','8I','9I','PW','AW','SW','LW','パター']},
   genres:[
     {name:'国家試験勉強',color:'#5B3FA6'},{name:'ウエイト',color:'#3A7A5A'},
     {name:'英語学習',color:'#1B2A4A'},{name:'ストレッチ',color:'#C07030'},
@@ -236,7 +240,10 @@ function App(){
         {tab==='goals'&&<GoalsTab data={data} upd={upd}/>}
         {tab==='money'&&<MoneyTab data={data} upd={upd}/>}
         {tab==='weight'&&<WeightTab data={data} upd={upd}/>}
+        {tab==='workout'&&<WorkoutTab data={data} upd={upd}/>}
         {tab==='golf'&&<GolfTab data={data} upd={upd}/>}
+        {tab==='books'&&<BooksTab data={data} upd={upd}/>}
+        {tab==='quotes'&&<QuotesTab data={data} upd={upd}/>}
         {tab==='diary'&&<DiaryTab data={data} upd={upd}/>}
       </div>
     </div>
@@ -905,6 +912,7 @@ function GolfTab({data,upd}){
       {subTab==='course'&&<GolfCourse golf={golf} upd={upd}/>}
       {subTab==='stats'&&<GolfStats golf={golf}/>}
       {subTab==='notes'&&<GolfNotes golf={golf} upd={upd}/>}
+      {subTab==='clubs'&&<GolfClubsTab golf={golf} upd={upd}/>}
     </div>
   );
 }
@@ -1424,6 +1432,313 @@ function DiaryTab({data,upd}){
             <div style={{flex:1}}><div style={{fontSize:11,color:'#888'}}>{e.date}{e.sleep?' | '+e.sleep:''}</div><div style={{fontSize:13,color:'#111',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.text}</div></div>
           </div>
           <button onClick={async()=>{const ok=await confirm('この日記を削除しますか？');if(ok)upd(d=>{d.diary=d.diary.filter(x=>x.id!==e.id);});}} style={{background:'none',border:'none',color:'#aaa',cursor:'pointer',fontSize:16}}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+// ── TAB GOAL BANNER ──
+function TabGoalBanner({tabId,data,upd}){
+  const goal=(data.tabGoals||{})[tabId]||'';
+  const [editing,setEditing]=useState(false);
+  const [val,setVal]=useState(goal);
+  if(editing)return(
+    <div style={{...st.card,background:'#FBF7EE',border:`1px solid ${GOLD}50`,marginBottom:14}}>
+      <input value={val} onChange={e=>setVal(e.target.value)} placeholder="このタブの目標を入力..." style={{...st.inp,marginBottom:8}}/>
+      <div style={{display:'flex',gap:6}}>
+        <button onClick={()=>{upd(d=>{if(!d.tabGoals)d.tabGoals={};d.tabGoals[tabId]=val;});setEditing(false);}} style={{...st.btn(),fontSize:12,padding:'6px 14px'}}>保存</button>
+        <button onClick={()=>setEditing(false)} style={{...st.btn(LIGHT,'#555'),fontSize:12,padding:'6px 14px'}}>キャンセル</button>
+      </div>
+    </div>
+  );
+  return(
+    <div onClick={()=>{setVal(goal);setEditing(true);}} style={{...st.card,background:'#FBF7EE',border:`1px solid ${GOLD}50`,marginBottom:14,cursor:'pointer',display:'flex',alignItems:'center',gap:8}}>
+      <span style={{fontSize:16}}>🎯</span>
+      <div style={{flex:1}}>
+        <div style={{fontSize:9,color:'#888',letterSpacing:'0.1em'}}>目標</div>
+        <div style={{fontSize:13,color:goal?NAVY:'#aaa'}}>{goal||'タップして目標を設定...'}</div>
+      </div>
+      <span style={{fontSize:12,color:'#aaa'}}>✏️</span>
+    </div>
+  );
+}
+
+// ── WORKOUT ──
+function WorkoutTab({data,upd}){
+  const {confirm,Dialog}=useConfirm();
+  const [showForm,setShowForm]=useState(false);
+  const [editId,setEditId]=useState(null);
+  const [form,setForm]=useState({date:today(),exercise:'',location:'',condition:'3',parts:[],totalTime:'',memo:''});
+  const [sets,setSets]=useState([{reps:'',weight:'',rest:''}]);
+  function addSet(){setSets(s=>[...s,{reps:'',weight:'',rest:''}]);}
+  function updateSet(i,field,val){setSets(s=>{const n=[...s];n[i]={...n[i],[field]:val};return n;});}
+  function removeSet(i){setSets(s=>s.filter((_,idx)=>idx!==i));}
+  function saveSession(){
+    if(!form.exercise.trim())return;
+    const session={id:editId||Date.now(),...form,sets:[...sets]};
+    if(editId)upd(d=>{d.workout.sessions=d.workout.sessions.map(x=>x.id===editId?session:x);});
+    else upd(d=>{d.workout.sessions=[session,...(d.workout.sessions||[])];});
+    setForm({date:today(),exercise:'',location:'',condition:'3',parts:[],totalTime:'',memo:''});
+    setSets([{reps:'',weight:'',rest:''}]);setShowForm(false);setEditId(null);
+  }
+  function startEdit(s){
+    setForm({date:s.date,exercise:s.exercise,location:s.location||'',condition:s.condition||'3',parts:s.parts||[],totalTime:s.totalTime||'',memo:s.memo||''});
+    setSets(s.sets&&s.sets.length>0?s.sets:[{reps:'',weight:'',rest:''}]);
+    setEditId(s.id);setShowForm(true);
+  }
+  const sessions=(data.workout?.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const exerciseNames=[...new Set(sessions.map(s=>s.exercise))];
+  const [selectedEx,setSelectedEx]=useState('');
+  const exSessions=sessions.filter(s=>s.exercise===(selectedEx||exerciseNames[0]));
+  const W=300,H=80;
+  const volumes=exSessions.slice().reverse().map(s=>s.sets?s.sets.reduce((t,set)=>(t+(parseFloat(set.weight)||0)*(parseInt(set.reps)||0)),0):0);
+  const minV=volumes.length>0?Math.min(...volumes):0;
+  const maxV=volumes.length>0?Math.max(...volumes):0;
+  function toYW(v){return maxV===minV?H/2:H-((v-minV)/(maxV-minV))*H;}
+  function toXW(i,len){return len>1?(i/(len-1))*(W-20)+10:W/2;}
+  const ptsW=volumes.map((v,i)=>`${toXW(i,volumes.length)},${toYW(v)}`).join(' ');
+  const allRests=sessions.flatMap(s=>(s.sets||[]).map(set=>parseInt(set.rest)||0)).filter(r=>r>0);
+  const avgRest=allRests.length>0?Math.round(allRests.reduce((s,v)=>s+v,0)/allRests.length):0;
+  const PARTS=['胸','背中','肩','腕','腹','脚','全身'];
+  return(
+    <div>
+      <Dialog/>
+      <TabGoalBanner tabId="workout" data={data} upd={upd}/>
+      <div style={{...st.between,marginBottom:12}}>
+        <div style={st.label}>筋トレ記録</div>
+        <button onClick={()=>{setForm({date:today(),exercise:'',location:'',condition:'3',parts:[],totalTime:'',memo:''});setSets([{reps:'',weight:'',rest:''}]);setEditId(null);setShowForm(!showForm);}} style={st.btn()}>+ 追加</button>
+      </div>
+      {sessions.length>0&&(
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}}>
+          <div style={{background:LIGHT,border:`1px solid ${BORDER}`,borderRadius:6,padding:'12px',textAlign:'center'}}>
+            <div style={{fontSize:9,color:'#888',marginBottom:4}}>総セッション数</div>
+            <div style={{fontSize:22,color:NAVY,fontWeight:'bold'}}>{sessions.length}</div>
+          </div>
+          <div style={{background:LIGHT,border:`1px solid ${BORDER}`,borderRadius:6,padding:'12px',textAlign:'center'}}>
+            <div style={{fontSize:9,color:'#888',marginBottom:4}}>平均セット間休憩</div>
+            <div style={{fontSize:22,color:NAVY,fontWeight:'bold'}}>{avgRest>0?avgRest+'秒':'-'}</div>
+          </div>
+        </div>
+      )}
+      {exerciseNames.length>0&&volumes.length>1&&(
+        <div style={{...st.card,marginBottom:14}}>
+          <div style={{fontSize:11,color:'#888',marginBottom:8}}>種目別ボリューム推移</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}}>
+            {exerciseNames.slice(0,5).map(ex=>(
+              <button key={ex} onClick={()=>setSelectedEx(ex)} style={{padding:'4px 10px',background:(selectedEx||exerciseNames[0])===ex?NAVY:'#fff',border:`1px solid ${(selectedEx||exerciseNames[0])===ex?NAVY:BORDER}`,borderRadius:20,color:(selectedEx||exerciseNames[0])===ex?'#fff':'#555',fontSize:11,cursor:'pointer'}}>{ex}</button>
+            ))}
+          </div>
+          <svg width="100%" viewBox={`0 0 ${W} ${H+20}`}>
+            <polyline points={ptsW} fill="none" stroke={GREEN} strokeWidth="2"/>
+            {volumes.map((v,i)=><circle key={i} cx={toXW(i,volumes.length)} cy={toYW(v)} r="3" fill={GREEN}/>)}
+          </svg>
+        </div>
+      )}
+      {showForm&&(
+        <div style={{...st.card,border:`1px solid ${GOLD}`,marginBottom:14}}>
+          <div style={{...st.grid2,marginBottom:8}}>
+            <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={st.inp}/>
+            <input value={form.location} onChange={e=>setForm(f=>({...f,location:e.target.value}))} placeholder="場所" style={st.inp}/>
+          </div>
+          <input value={form.exercise} onChange={e=>setForm(f=>({...f,exercise:e.target.value}))} placeholder="種目名（例：ベンチプレス）" style={{...st.inp,marginBottom:8}}/>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:10,color:'#888',marginBottom:6}}>部位</div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {PARTS.map(p=><button key={p} onClick={()=>setForm(f=>({...f,parts:f.parts.includes(p)?f.parts.filter(x=>x!==p):[...f.parts,p]}))} style={{padding:'4px 10px',background:form.parts.includes(p)?NAVY:'#fff',border:`1px solid ${form.parts.includes(p)?NAVY:BORDER}`,borderRadius:20,color:form.parts.includes(p)?'#fff':'#555',fontSize:11,cursor:'pointer'}}>{p}</button>)}
+            </div>
+          </div>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:10,color:'#888',marginBottom:4}}>コンディション</div>
+            <div style={{display:'flex',gap:6}}>{['1','2','3','4','5'].map(v=><button key={v} onClick={()=>setForm(f=>({...f,condition:v}))} style={{flex:1,padding:'6px 0',background:form.condition===v?GOLD:'#fff',border:`1px solid ${form.condition===v?GOLD:BORDER}`,borderRadius:3,color:form.condition===v?'#fff':'#555',fontSize:12,cursor:'pointer'}}>{v}</button>)}</div>
+          </div>
+          <div style={{fontSize:11,color:'#888',marginBottom:6}}>セット記録（回数・重量kg・休憩秒）</div>
+          {sets.map((set,i)=>(
+            <div key={i} style={{display:'flex',gap:4,alignItems:'center',marginBottom:6}}>
+              <span style={{fontSize:11,color:'#888',width:20,flexShrink:0}}>{i+1}</span>
+              <input type="number" value={set.reps} onChange={e=>updateSet(i,'reps',e.target.value)} placeholder="回" style={{...st.inp,flex:1}}/>
+              <input type="number" value={set.weight} onChange={e=>updateSet(i,'weight',e.target.value)} placeholder="kg" style={{...st.inp,flex:1}}/>
+              <input type="number" value={set.rest} onChange={e=>updateSet(i,'rest',e.target.value)} placeholder="秒" style={{...st.inp,flex:1}}/>
+              {sets.length>1&&<button onClick={()=>removeSet(i)} style={{background:'none',border:'none',color:'#aaa',cursor:'pointer',fontSize:16}}>×</button>}
+            </div>
+          ))}
+          <button onClick={addSet} style={{...st.btn(LIGHT,'#555'),width:'100%',marginBottom:8,fontSize:12}}>+ セット追加</button>
+          <input value={form.totalTime} onChange={e=>setForm(f=>({...f,totalTime:e.target.value}))} placeholder="総時間（例: 60分）" style={{...st.inp,marginBottom:8}}/>
+          <textarea value={form.memo} onChange={e=>setForm(f=>({...f,memo:e.target.value}))} placeholder="メモ・気づき" rows={2} style={{...st.inp,resize:'vertical',marginBottom:10}}/>
+          <button onClick={saveSession} style={{...st.btn(),width:'100%'}}>{editId?'更新':'保存'}</button>
+        </div>
+      )}
+      {sessions.length===0&&<div style={{fontSize:12,color:'#aaa'}}>筋トレを記録してください</div>}
+      {sessions.map(s=>{
+        const totalVol=s.sets?s.sets.reduce((t,set)=>(t+(parseFloat(set.weight)||0)*(parseInt(set.reps)||0)),0):0;
+        return(
+          <div key={s.id} style={{...st.card,marginBottom:10}}>
+            <div style={st.between}>
+              <div><div style={{fontSize:13,color:'#111',fontWeight:'bold'}}>{s.exercise}</div><div style={{fontSize:11,color:'#888'}}>{s.date}{s.location&&` @ ${s.location}`}</div></div>
+              <div style={{textAlign:'right'}}><div style={{fontSize:13,color:GREEN,fontWeight:'bold'}}>{totalVol>0?totalVol+'kg':''}</div><div style={{fontSize:10,color:'#888'}}>{s.sets?s.sets.length:0}セット</div></div>
+            </div>
+            {s.parts&&s.parts.length>0&&<div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>{s.parts.map(p=><span key={p} style={{fontSize:10,background:NAVY+'15',color:NAVY,borderRadius:3,padding:'1px 6px'}}>{p}</span>)}</div>}
+            {s.sets&&s.sets.length>0&&<div style={{marginTop:8,borderTop:`1px solid ${BORDER}`,paddingTop:8}}>{s.sets.map((set,i)=><div key={i} style={{display:'flex',gap:8,fontSize:12,color:'#555',marginBottom:3}}><span style={{color:'#888'}}>{i+1}セット</span><span>{set.reps}回</span>{set.weight&&<span>{set.weight}kg</span>}{set.rest&&<span style={{color:'#aaa'}}>休{set.rest}秒</span>}</div>)}</div>}
+            {s.memo&&<div style={{fontSize:11,color:'#555',marginTop:6,padding:'6px 8px',background:LIGHT,borderRadius:4}}>{s.memo}</div>}
+            <div style={{display:'flex',gap:6,marginTop:8}}>
+              <button onClick={()=>startEdit(s)} style={{...st.btn(LIGHT,'#555'),flex:1,fontSize:11}}>✏️ 編集</button>
+              <button onClick={async()=>{const ok=await confirm('このセッションを削除しますか？');if(ok)upd(d=>{d.workout.sessions=d.workout.sessions.filter(x=>x.id!==s.id);});}} style={{...st.btn('#fff',RED),flex:1,fontSize:11,border:`1px solid ${RED}`}}>× 削除</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── BOOKS ──
+function BooksTab({data,upd}){
+  const {confirm,Dialog}=useConfirm();
+  const [showForm,setShowForm]=useState(false);
+  const [editId,setEditId]=useState(null);
+  const [viewing,setViewing]=useState(null);
+  const [form,setForm]=useState({title:'',author:'',date:today(),summary:'',impression:'',rating:'3'});
+  function saveBook(){
+    if(!form.title.trim())return;
+    if(editId)upd(d=>{d.books=d.books.map(x=>x.id===editId?{...x,...form}:x);});
+    else upd(d=>{d.books=[{id:Date.now(),...form},...(d.books||[])];});
+    setForm({title:'',author:'',date:today(),summary:'',impression:'',rating:'3'});setShowForm(false);setEditId(null);
+  }
+  const books=data.books||[];
+  if(viewing){
+    const b=books.find(x=>x.id===viewing);
+    return(
+      <div>
+        <Dialog/>
+        <div style={{...st.between,marginBottom:14}}>
+          <div style={st.label}>{b?.title}</div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={()=>{setForm({title:b.title,author:b.author||'',date:b.date,summary:b.summary||'',impression:b.impression||'',rating:b.rating||'3'});setEditId(b.id);setShowForm(true);setViewing(null);}} style={{background:'none',border:'none',color:'#aaa',cursor:'pointer',fontSize:13}}>✏️</button>
+            <button onClick={async()=>{const ok=await confirm('この本を削除しますか？');if(ok){upd(d=>{d.books=d.books.filter(x=>x.id!==b.id);});setViewing(null);}}} style={{background:'none',border:'none',color:'#aaa',cursor:'pointer',fontSize:16}}>×</button>
+            <button onClick={()=>setViewing(null)} style={{background:'none',border:'none',color:'#888',cursor:'pointer',fontSize:12}}>← 戻る</button>
+          </div>
+        </div>
+        {b&&<div style={st.card}>
+          <div style={{fontSize:18,color:NAVY,fontWeight:'bold',marginBottom:4}}>{b.title}</div>
+          {b.author&&<div style={{fontSize:13,color:'#888',marginBottom:4}}>著者: {b.author}</div>}
+          <div style={{fontSize:11,color:'#888',marginBottom:12}}>読了: {b.date}　{'⭐'.repeat(parseInt(b.rating)||3)}</div>
+          {b.summary&&<div style={{marginBottom:12}}><div style={{fontSize:10,color:'#888',marginBottom:4,letterSpacing:'0.1em'}}>SUMMARY</div><div style={{fontSize:13,color:'#111',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{b.summary}</div></div>}
+          {b.impression&&<div><div style={{fontSize:10,color:'#888',marginBottom:4,letterSpacing:'0.1em'}}>IMPRESSION</div><div style={{fontSize:13,color:'#111',lineHeight:1.8,whiteSpace:'pre-wrap'}}>{b.impression}</div></div>}
+        </div>}
+      </div>
+    );
+  }
+  return(
+    <div>
+      <Dialog/>
+      <TabGoalBanner tabId="books" data={data} upd={upd}/>
+      <div style={{...st.between,marginBottom:12}}>
+        <div style={st.label}>読書記録 ({books.length}冊)</div>
+        <button onClick={()=>{setForm({title:'',author:'',date:today(),summary:'',impression:'',rating:'3'});setEditId(null);setShowForm(!showForm);}} style={st.btn()}>+ 追加</button>
+      </div>
+      {showForm&&(
+        <div style={{...st.card,border:`1px solid ${GOLD}`,marginBottom:14}}>
+          <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="書名" style={{...st.inp,marginBottom:8}}/>
+          <input value={form.author} onChange={e=>setForm(f=>({...f,author:e.target.value}))} placeholder="著者" style={{...st.inp,marginBottom:8}}/>
+          <div style={{...st.grid2,marginBottom:8}}>
+            <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={st.inp}/>
+            <div><div style={{fontSize:10,color:'#888',marginBottom:4}}>評価</div><div style={{display:'flex',gap:3}}>{['1','2','3','4','5'].map(v=><button key={v} onClick={()=>setForm(f=>({...f,rating:v}))} style={{flex:1,padding:'5px 0',background:form.rating===v?GOLD:'#fff',border:`1px solid ${form.rating===v?GOLD:BORDER}`,borderRadius:3,color:form.rating===v?'#fff':'#555',fontSize:10,cursor:'pointer'}}>{v}⭐</button>)}</div></div>
+          </div>
+          <textarea value={form.summary} onChange={e=>setForm(f=>({...f,summary:e.target.value}))} placeholder="内容・要約" rows={3} style={{...st.inp,resize:'vertical',marginBottom:8}}/>
+          <textarea value={form.impression} onChange={e=>setForm(f=>({...f,impression:e.target.value}))} placeholder="感想・学び" rows={3} style={{...st.inp,resize:'vertical',marginBottom:10}}/>
+          <button onClick={saveBook} style={{...st.btn(),width:'100%'}}>{editId?'更新':'保存'}</button>
+        </div>
+      )}
+      {books.length===0&&<div style={{fontSize:12,color:'#aaa'}}>本を追加してください</div>}
+      {books.map(b=>(
+        <div key={b.id} onClick={()=>setViewing(b.id)} style={{...st.card,cursor:'pointer',marginBottom:8,display:'flex',alignItems:'center',gap:12}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,color:NAVY,fontWeight:'bold'}}>{b.title}</div>
+            {b.author&&<div style={{fontSize:11,color:'#888'}}>{b.author}</div>}
+            <div style={{fontSize:10,color:'#888',marginTop:2}}>{b.date}　{'⭐'.repeat(parseInt(b.rating)||3)}</div>
+            {b.impression&&<div style={{fontSize:12,color:'#555',marginTop:4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{b.impression}</div>}
+          </div>
+          <div style={{color:'#aaa'}}>›</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── QUOTES ──
+function QuotesTab({data,upd}){
+  const {confirm,Dialog}=useConfirm();
+  const [showForm,setShowForm]=useState(false);
+  const [editId,setEditId]=useState(null);
+  const [form,setForm]=useState({text:'',author:'',memo:''});
+  function saveQuote(){
+    if(!form.text.trim())return;
+    if(editId)upd(d=>{d.quotes=d.quotes.map(x=>x.id===editId?{...x,...form}:x);});
+    else upd(d=>{d.quotes=[{id:Date.now(),...form},...(d.quotes||[])];});
+    setForm({text:'',author:'',memo:''});setShowForm(false);setEditId(null);
+  }
+  const quotes=data.quotes||[];
+  const todayQuote=quotes.length>0?quotes[new Date().getDate()%quotes.length]:null;
+  return(
+    <div>
+      <Dialog/>
+      <div style={{...st.between,marginBottom:12}}>
+        <div style={st.label}>名言・座右の銘 ({quotes.length}件)</div>
+        <button onClick={()=>{setForm({text:'',author:'',memo:''});setEditId(null);setShowForm(!showForm);}} style={st.btn()}>+ 追加</button>
+      </div>
+      {todayQuote&&(
+        <div style={{...st.card,background:'#FBF7EE',border:`1px solid ${GOLD}`,marginBottom:14,textAlign:'center',padding:'20px 16px'}}>
+          <div style={{fontSize:10,color:'#888',marginBottom:10,letterSpacing:'0.15em'}}>TODAY'S QUOTE</div>
+          <div style={{fontSize:15,color:NAVY,lineHeight:1.8,fontStyle:'italic',marginBottom:10}}>「{todayQuote.text}」</div>
+          {todayQuote.author&&<div style={{fontSize:12,color:GOLD}}>— {todayQuote.author}</div>}
+        </div>
+      )}
+      {showForm&&(
+        <div style={{...st.card,border:`1px solid ${GOLD}`,marginBottom:14}}>
+          <textarea value={form.text} onChange={e=>setForm(f=>({...f,text:e.target.value}))} placeholder="名言・座右の銘" rows={3} style={{...st.inp,resize:'vertical',marginBottom:8}}/>
+          <input value={form.author} onChange={e=>setForm(f=>({...f,author:e.target.value}))} placeholder="言った人・出典" style={{...st.inp,marginBottom:8}}/>
+          <input value={form.memo} onChange={e=>setForm(f=>({...f,memo:e.target.value}))} placeholder="メモ（任意）" style={{...st.inp,marginBottom:10}}/>
+          <button onClick={saveQuote} style={{...st.btn(),width:'100%'}}>{editId?'更新':'保存'}</button>
+        </div>
+      )}
+      {quotes.length===0&&<div style={{fontSize:12,color:'#aaa'}}>名言を追加してください</div>}
+      {quotes.map(q=>(
+        <div key={q.id} style={{...st.card,marginBottom:10,borderLeft:`3px solid ${GOLD}`}}>
+          <div style={st.between}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,color:NAVY,lineHeight:1.7,fontStyle:'italic'}}>「{q.text}」</div>
+              {q.author&&<div style={{fontSize:12,color:GOLD,marginTop:4}}>— {q.author}</div>}
+              {q.memo&&<div style={{fontSize:11,color:'#888',marginTop:4}}>{q.memo}</div>}
+            </div>
+            <div style={{display:'flex',gap:4,marginLeft:8,flexShrink:0}}>
+              <button onClick={()=>{setForm({text:q.text,author:q.author||'',memo:q.memo||''});setEditId(q.id);setShowForm(true);}} style={{background:'none',border:'none',color:'#aaa',cursor:'pointer',fontSize:13}}>✏️</button>
+              <button onClick={async()=>{const ok=await confirm('この名言を削除しますか？');if(ok)upd(d=>{d.quotes=d.quotes.filter(x=>x.id!==q.id);});}} style={{background:'none',border:'none',color:'#aaa',cursor:'pointer',fontSize:16}}>×</button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── GOLF CLUBS ──
+function GolfClubsTab({golf,upd}){
+  const {confirm,Dialog}=useConfirm();
+  const [newClub,setNewClub]=useState('');
+  const clubs=golf.clubs||['ドライバー','3W','5W','5U','4I','5I','6I','7I','8I','9I','PW','AW','SW','LW','パター'];
+  return(
+    <div>
+      <Dialog/>
+      <div style={st.label}>クラブ管理</div>
+      <div style={{display:'flex',gap:6,marginBottom:14}}>
+        <input value={newClub} onChange={e=>setNewClub(e.target.value)} placeholder="クラブ名を追加" style={{...st.inp,flex:1}}/>
+        <button onClick={()=>{if(!newClub.trim())return;upd(d=>{if(!d.golf.clubs.includes(newClub.trim()))d.golf.clubs=[...d.golf.clubs,newClub.trim()];});setNewClub('');}} style={st.btn()}>追加</button>
+      </div>
+      {clubs.map(c=>(
+        <div key={c} style={{display:'flex',alignItems:'center',padding:'10px 14px',marginBottom:6,background:'#fff',border:`1px solid ${BORDER}`,borderRadius:4}}>
+          <div style={{flex:1,fontSize:13}}>{c}</div>
+          <button onClick={async()=>{const ok=await confirm(`「${c}」を削除しますか？`);if(ok)upd(d=>{d.golf.clubs=d.golf.clubs.filter(x=>x!==c);});}} style={{background:'none',border:'none',color:'#aaa',cursor:'pointer',fontSize:16}}>×</button>
         </div>
       ))}
     </div>
